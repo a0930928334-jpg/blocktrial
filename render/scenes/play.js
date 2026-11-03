@@ -401,7 +401,8 @@
         if (left === 0) ctx.globalAlpha = 0.35;
         D.relicIcon(ctx, id, cx, cy, size * fx.scale, { flash: fx.flash });
         ctx.restore();
-        if (left !== null) self._drawItemLeft(ctx, left, cx, cy, size);
+        if (id === 'timeBomb') self._drawBombStatus(ctx, cx, cy, size);
+        else if (left !== null) self._drawItemLeft(ctx, left, cx, cy, size);
         self.ui.area('relic_' + id, cx - size / 2 - 2, r.y, size + 4, r.h, function () {
           const same = self.tip && self.tip.id === id;
           self.tip = same ? null : { id: id, x: cx, left: BG.Config.ui.relicTipMs };
@@ -424,6 +425,20 @@
       ctx.globalAlpha = cfg.glow * wave;
       D.fillRound(ctx, p.x, barY - extra / 2, w, 7 + extra, (7 + extra) / 2, '#ffffff');
       ctx.restore();
+    }
+
+    // 炸弹图标：底部是获取进度，右上角是这局还能再获得几颗
+    _drawBombStatus(ctx, cx, cy, size) {
+      const g = this.game;
+      const left = g.bombsLeftToGain();
+      if (left > 0) {
+        const p = g.bombProgress();
+        const w = Math.max(30, size * 0.8);
+        D.fillRound(ctx, cx - w / 2, cy + size / 2 - 18, w, 19, 6, 'rgba(11, 14, 19, 0.92)');
+        D.text(ctx, p.full ? '满' : p.value + '/' + p.of, cx, cy + size / 2 - 8, { size: 16, bold: true, align: 'center', color: p.full ? T.gold : T.accent });
+      }
+      D.fillRound(ctx, cx + size / 2 - 11, cy - size / 2 - 3, 15, 19, 6, 'rgba(11, 14, 19, 0.92)');
+      D.text(ctx, String(left), cx + size / 2 - 3.5, cy - size / 2 + 6.5, { size: 16, bold: true, align: 'center', color: left > 0 ? T.gold : T.textDim });
     }
 
     // 道具类遗物图标上的剩余次数

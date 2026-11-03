@@ -112,11 +112,14 @@
       bon: r.bonusEntries || 0,
       sd: r.diedInSprint ? 1 : 0
     };
-    // 道具类遗物 { b 炸弹, h 暂存, s 小块: [剩余次数, 用完时第几步] }，没有道具类遗物的局不写
+    // 道具类遗物 { b 炸弹: [累计获得, 达到上限时第几步], h 暂存, s 小块: [剩余次数, 用完时第几步] }，没有道具类遗物的局不写
     const items = r.itemRelics || {};
     if (Object.keys(items).length > 0) {
       out.ir = {};
-      Object.keys(items).forEach(function (id) { out.ir[ITEM_CODES[id]] = [items[id].left, items[id].usedUpStep]; });
+      Object.keys(items).forEach(function (id) {
+        const it = items[id];
+        out.ir[ITEM_CODES[id]] = id === 'timeBomb' ? [it.gained, it.capStep] : [it.left, it.usedUpStep];
+      });
     }
     // 奖励 [换一组, 复活]，没有奖励的局不写这两个键
     if (Object.keys(r.rewardsGained || {}).length > 0) {

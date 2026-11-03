@@ -33,8 +33,8 @@
     },
     {
       id: 'timeBomb', type: 'item', name: '炸弹',
-      short: function () { return '立得' + rc().bombGrant + '颗炸弹'; },
-      trigger: function () { return '炸弹 +' + rc().bombGrant; }
+      short: function () { return '消' + rc().bombEvery + '次 得炸弹'; },
+      trigger: function () { return '炸弹 +1'; }
     },
     {
       id: 'holdSlot', type: 'item', name: '暂存',

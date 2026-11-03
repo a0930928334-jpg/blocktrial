@@ -56,6 +56,8 @@
       this.holdLeft = 0;
       this.smallLeft = 0;
       this.itemUsedUp = {};
+      this.clearsForBomb = 0;
+      this.bombCapStep = null;
       this.bombs = 0;
       this.bombsGained = 0;
       this.bombsUsed = 0;
@@ -254,7 +256,7 @@
 
     // 道具类遗物的剩余次数，加分类遗物返回 null
     itemLeft(id) {
-      if (id === 'timeBomb') return this.bombs;
+      if (id === 'timeBomb') return this.bombs + this.bombsLeftToGain();
       if (id === 'holdSlot') return this.holdLeft;
       if (id === 'smallPiece') return this.smallLeft;
       return null;
@@ -412,6 +414,7 @@
       this._emitScoreTriggers(result.triggers, result.details, lines, removed);
       this._checkMilestones(prevScore);
 
+      this._tickRelicCounters(lines.length, removed);
       this._normalizeTray();
 
       // 先看有没有过阶梯：选完遗物再发牌，遗物和考验期才能作用到这组牌
@@ -459,6 +462,32 @@
         this.combo = 0;
         this.noClearStreak = 0;
       }
+    }
+
+    _tickRelicCounters(lineCount, removed) {
+      if (!this.has('timeBomb') || lineCount === 0 || this.bombsFull() || this.bombsLeftToGain() <= 0) return;
+      this.clearsForBomb++;
+      if (this.clearsForBomb >= this.cfg.relic.bombEvery) {
+        this.clearsForBomb = 0;
+        this.bombs++;
+        this.bombsGained++;
+        if (this.bombsLeftToGain() === 0) this.bombCapStep = this.placements;
+        this._trigger('timeBomb', this._centerOf(removed));
+      }
+    }
+
+    // 持有满时获取进度暂停，用掉一颗后接着累计
+    bombsFull() {
+      return this.bombs >= this.cfg.relic.bombMax;
+    }
+
+    bombProgress() {
+      return { value: this.clearsForBomb, of: this.cfg.relic.bombEvery, full: this.bombsFull() };
+    }
+
+    // 这局还能再获得几颗
+    bombsLeftToGain() {
+      return this.cfg.relic.bombTotalMax - this.bombsGained;
     }
 
     // ---------- 遗物生效 ----------
@@ -581,11 +610,6 @@
         this.holdLeft = r.holdUses;
       } else if (id === 'smallPiece') {
         this.smallLeft = r.smallGroups;
-      } else if (id === 'timeBomb') {
-        const gain = Math.min(r.bombGrant, r.bombMax - this.bombs);
-        this.bombs += gain;
-        this.bombsGained += gain;
-        this._trigger('timeBomb', { at: 'tray' });
       }
       this._emit('relicGained', { id: id });
     }
@@ -625,7 +649,6 @@
       if (!this.canAct() || this.bombs <= 0) return false;
       this.bombs--;
       this.bombsUsed++;
-      this._noteItemLeft('timeBomb', this.bombs);
       this._noteStuckChoice('bomb');
       const removed = this.board.clearArea(r, c, this.cfg.relic.bombRadius);
       this._emit('bombed', { r: r, c: c, removed: removed });
@@ -844,12 +867,17 @@
       };
     }
 
-    // 这局拿到的道具类遗物：{ 遗物: { left: 剩余次数, usedUpStep: 用完时是第几步，没用完是 null } }
+    // 这局拿到的道具类遗物。炸弹：{ gained: 累计获得, capStep: 达到上限时是第几步，没达到是 null }；
+    // 其他：{ left: 剩余次数, usedUpStep: 用完时是第几步，没用完是 null }
     _itemRecord() {
       const out = {};
       this.relics.forEach(function (id) {
         const left = this.itemLeft(id);
         if (left === null) return;
+        if (id === 'timeBomb') {
+          out[id] = { gained: this.bombsGained, capStep: this.bombCapStep };
+          return;
+        }
         const step = this.itemUsedUp[id];
         out[id] = { left: left, usedUpStep: step === undefined ? null : step };
       }, this);
