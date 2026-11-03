@@ -174,7 +174,8 @@ BG.Config = {
 
   // ---------- 广告（试玩版为模拟） ----------
   ads: {
-    countdownSec: 3,        // 模拟广告倒计时（秒）
+    countdownSec: 15,       // 模拟广告倒计时（秒），和真实激励视频接近
+    countdownFastSec: 3,    // 调试面板切到快速时的倒计时（秒）
     reviveLimit: 1,         // 每局复活次数
     swapTrayLimit: 1,       // 每局"换一组方块"次数。一局的激励广告只有复活和换一组，最多 2 次
     interstitialEnabled: false, // 插屏总开关，试玩版关闭

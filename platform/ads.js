@@ -6,6 +6,7 @@
 
   let current = null;
   let countdownOn = true;
+  let fast = false;
 
   function closeRect(screen) {
     return { x: screen.width - 92 - screen.safe.right, y: 12 + screen.safe.top, w: 80, h: 44 };
@@ -20,7 +21,7 @@
       current = {
         kind: kind,
         type: type,
-        remainingMs: BG.Config.ads.countdownSec * 1000,
+        remainingMs: (fast ? BG.Config.ads.countdownFastSec : BG.Config.ads.countdownSec) * 1000,
         resolve: resolve
       };
     });
@@ -53,6 +54,15 @@
 
     countdownEnabled: function () {
       return countdownOn;
+    },
+
+    // 调试面板用：切到快速倒计时，方便测试
+    setFast: function (value) {
+      fast = value;
+    },
+
+    isFast: function () {
+      return fast;
     },
 
     tick: function (dtMs) {

@@ -112,6 +112,10 @@
       bon: r.bonusEntries || 0,
       sd: r.diedInSprint ? 1 : 0
     };
+    // 过线保护每次触发时的分数，长度就是次数，没触发的局不写
+    if ((r.crossGuards || []).length > 0) {
+      out.cg = r.crossGuards.map(function (x) { return x.score; });
+    }
     // 有次数的遗物 { b 炸弹: [累计获得, 达到上限时第几步], h 暂存: [剩余次数, 用完时第几步] }，没有的局不写
     const items = r.itemRelics || {};
     if (Object.keys(items).length > 0) {

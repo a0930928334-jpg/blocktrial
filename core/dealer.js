@@ -343,6 +343,13 @@
       return key;
     }
 
+    // 从 prev 涨到 score 越过了哪些关键分，从低到高
+    crossedKeys(prev, score) {
+      const out = [];
+      for (let key = this.nextKey(prev); key <= score; key = this.nextKey(key)) out.push(key);
+      return out;
+    }
+
     // 分数距下一个关键分不到 keyRatio
     inSprintWindow(score) {
       return score >= this.nextKey(score) * (1 - this.cfg.dealer.sprint.keyRatio);

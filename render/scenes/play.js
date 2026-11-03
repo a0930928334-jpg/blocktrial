@@ -147,6 +147,11 @@
           case 'relicGained':
             BG.Audio.play('relic');
             break;
+          case 'crossGuard':
+            BG.Audio.play('relic');
+            BG.Vibrate.short(cfg.feel.vibrateMs);
+            self._showToast('过线奖励');
+            break;
           case 'rewardGranted':
             BG.Audio.play('relic');
             BG.Vibrate.short(cfg.feel.vibrateMs);

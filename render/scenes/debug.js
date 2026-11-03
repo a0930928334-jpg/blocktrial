@@ -74,6 +74,13 @@
         size: 16, style: adsOn ? 'primary' : 'secondary',
         onTap: function () { BG.Ads.setCountdownEnabled(!adsOn); }
       });
+      y += 54;
+
+      const adsFast = BG.Ads.isFast();
+      ui.button(ctx, 'adsFast', x, y, w, 46, '广告时长：' + (adsFast ? BG.Config.ads.countdownFastSec : BG.Config.ads.countdownSec) + ' 秒', {
+        size: 16, style: adsFast ? 'secondary' : 'primary',
+        onTap: function () { BG.Ads.setFast(!adsFast); }
+      });
       y += 58;
 
       D.text(ctx, '直接获得遗物', x, y + 10, { size: 16, color: T.textDim });

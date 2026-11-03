@@ -78,6 +78,8 @@
       this.milestones = [];
       this.recordBroken = false;
       this.relaxedDeals = 0;
+      this.guardKeys = [];     // 这组牌里刚越过、还没触发过线保护的关键分
+      this.crossGuards = [];
       this.piecesDealt = 0;
       this.szDealt = 0;
       this.lateDealt = 0;
@@ -192,6 +194,7 @@
     // ---------- 发牌 ----------
 
     _deal() {
+      this.guardKeys = [];
       const buffer = this.bufferLeft > 0;
       if (buffer) this.bufferLeft--;
       const phase = this.director.next(this.placements, this.score, buffer);
@@ -404,6 +407,7 @@
       this.score += result.total;
       this.linesCleared += lines.length;
       this.director.onScore(prevScore, this.score);
+      if (this.director.dynamic) this.guardKeys = this.guardKeys.concat(this.director.crossedKeys(prevScore, this.score));
       this.lastPlaceCleared = lines.length > 0;
 
       if (lines.length > 0) {
@@ -701,12 +705,33 @@
       }
       // 待选的遗物先选，选完再判断是否卡死
       if (this.pendingTiers.length > 0 && this._nextOffer()) return;
+      if (this._crossGuard()) return;
       if (this.phase !== 'stuck') {
         this.currentStuck = { step: this.placements, panel: false, choices: [], tried: {} };
         this.stuckLog.push(this.currentStuck);
         this.phase = 'stuck';
       }
       this._showStuckPanel();
+    }
+
+    // 过线保护：这组里刚越过关键分，剩下的方块都放不下，就免费换成奖励期规则的方块。
+    // 每个关键分最多一次，不算换组次数，也不弹"无处可放"。每日挑战不用（dynamic 是 false）
+    _crossGuard() {
+      const count = this.tray.filter(Boolean).length;
+      if (this.guardKeys.length === 0 || count === 0) return false;
+      const key = this.guardKeys.shift();
+      this.rerollNo++;
+      const picked = this._pickDynamic('bonus', count, this.rerollNo);
+      this.tray = picked ? picked.pieces : this.gen.drawSmallGuaranteed(this.board, count, this.cfg.dealer.fallbackMaxCells, this.groupIndex + ':' + this.rerollNo);
+      const metrics = BG.Dealer.evaluate(this.board, this.tray, this.cfg);
+      this.currentDeal.fits = metrics.fits;
+      this.currentDeal.solvable = metrics.solvable;
+      while (this.tray.length < this.cfg.board.traySize) this.tray.push(null);
+      this.crossGuards.push({ key: key, score: this.score, step: this.placements });
+      this._emit('crossGuard', { key: key });
+      this.phase = 'playing';
+      this.currentStuck = null;
+      return true;
     }
 
     // 没有任何选项时直接结算。同一次卡死只计一次面板，炸弹没解围时回到同一个面板。
@@ -853,6 +878,7 @@
         relaxedDeals: this.relaxedDeals,
         bombsGained: this.bombsGained,
         bombsUsed: this.bombsUsed,
+        crossGuards: this.crossGuards,
         itemRelics: this._itemRecord(),
         rewardsGained: this.rewardsGained,
         rewardsUsed: this.rewardsUsed,
