@@ -53,11 +53,12 @@
 
       this.hold = null;
       this.holdUnlocked = false;
+      this.holdLeft = 0;
+      this.smallLeft = 0;
+      this.itemUsedUp = {};
       this.bombs = 0;
       this.bombsGained = 0;
       this.bombsUsed = 0;
-      this.clearsForBomb = 0;
-      this.groupsForSmall = 0;
       this.lastPlaceCleared = false;
 
       this.swapsUsed = 0;
@@ -206,9 +207,10 @@
       }
       if (buffer) this._applyBufferSwap();
       const gifted = this._tickSmallPiece();
-      // 小块换掉的那块可能正是消线腾位置要用的，换完没解就改发保底的小方块
+      // 小块换掉的那块可能正是消线腾位置要用的，换完没解就改发保底的小方块，送的 1×1 照样留着
       if (gifted && dynamic && BG.Dealer.evaluate(this.board, this.tray, this.cfg).solvable === false) {
-        this.tray = this.gen.drawSmallGuaranteed(this.board, count, this.cfg.dealer.fallbackMaxCells, this.groupIndex);
+        this.tray = this.gen.drawSmallGuaranteed(this.board, count - 1, this.cfg.dealer.fallbackMaxCells, this.groupIndex)
+          .concat([this.gen.giftPiece(this.groupIndex)]);
       }
       const late = BG.Dealer.isLate(phase, this.placements, this.cfg, this.mode);
       this._countDealt(late);
@@ -232,12 +234,11 @@
       this._emit('dealt', {});
     }
 
-    // 小块遗物：每发几组牌，这组有一块是 1×1。不加块，把最大的一块换掉；已经有 1×1 就不用换。
+    // 小块遗物：接下来几组牌各有一块 1×1。不加块，把最大的一块换掉；已经有 1×1 就不用换。
     _tickSmallPiece() {
-      if (!this.has('smallPiece')) return false;
-      this.groupsForSmall++;
-      if (this.groupsForSmall < this.cfg.relic.smallEvery) return false;
-      this.groupsForSmall = 0;
+      if (this.smallLeft <= 0) return false;
+      this.smallLeft--;
+      this._noteItemLeft('smallPiece', this.smallLeft);
       let slot = this.tray.findIndex(function (p) { return p.shape.id === '1x1'; });
       const replaced = slot === -1;
       if (replaced) {
@@ -251,8 +252,17 @@
       return replaced;
     }
 
-    smallProgress() {
-      return { value: this.groupsForSmall, of: this.cfg.relic.smallEvery, full: false };
+    // 道具类遗物的剩余次数，加分类遗物返回 null
+    itemLeft(id) {
+      if (id === 'timeBomb') return this.bombs;
+      if (id === 'holdSlot') return this.holdLeft;
+      if (id === 'smallPiece') return this.smallLeft;
+      return null;
+    }
+
+    // 记下第一次用完是第几步
+    _noteItemLeft(id, left) {
+      if (left === 0 && this.itemUsedUp[id] === undefined) this.itemUsedUp[id] = this.placements;
     }
 
     // rerollNo：换一组时传入，用另一条随机流，不发 S/Z
@@ -312,8 +322,14 @@
     }
 
     _takeFrom(source) {
-      if (source === 'hold') this.hold = null;
+      if (source === 'hold') this._emptyHold();
       else this.tray[source] = null;
+    }
+
+    // 次数用完后，里面的方块取走，暂存位就关闭
+    _emptyHold() {
+      this.hold = null;
+      if (this.holdLeft <= 0) this.holdUnlocked = false;
     }
 
     _rerollTray() {
@@ -396,7 +412,6 @@
       this._emitScoreTriggers(result.triggers, result.details, lines, removed);
       this._checkMilestones(prevScore);
 
-      this._tickRelicCounters(lines.length, removed);
       this._normalizeTray();
 
       // 先看有没有过阶梯：选完遗物再发牌，遗物和考验期才能作用到这组牌
@@ -444,26 +459,6 @@
         this.combo = 0;
         this.noClearStreak = 0;
       }
-    }
-
-    _tickRelicCounters(lineCount, removed) {
-      if (!this.has('timeBomb') || lineCount === 0 || this.bombsFull()) return;
-      this.clearsForBomb++;
-      if (this.clearsForBomb >= this.cfg.relic.bombEvery) {
-        this.clearsForBomb = 0;
-        this.bombs++;
-        this.bombsGained++;
-        this._trigger('timeBomb', this._centerOf(removed));
-      }
-    }
-
-    // 持有满时获取进度暂停，用掉一颗后接着累计
-    bombsFull() {
-      return this.bombs >= this.cfg.relic.bombMax;
-    }
-
-    bombProgress() {
-      return { value: this.clearsForBomb, of: this.cfg.relic.bombEvery, full: this.bombsFull() };
     }
 
     // ---------- 遗物生效 ----------
@@ -579,19 +574,37 @@
     }
 
     _grantRelic(id) {
+      const r = this.cfg.relic;
       this.relics.push(id);
-      if (id === 'holdSlot') this.holdUnlocked = true;
+      if (id === 'holdSlot') {
+        this.holdUnlocked = true;
+        this.holdLeft = r.holdUses;
+      } else if (id === 'smallPiece') {
+        this.smallLeft = r.smallGroups;
+      } else if (id === 'timeBomb') {
+        const gain = Math.min(r.bombGrant, r.bombMax - this.bombs);
+        this.bombs += gain;
+        this.bombsGained += gain;
+        this._trigger('timeBomb', { at: 'tray' });
+      }
       this._emit('relicGained', { id: id });
     }
 
     // ---------- 道具 ----------
 
-    // 把托盘里的方块放进暂存格；暂存格有方块时互换
+    // 还能不能往暂存格放方块
+    canStash() {
+      return this.holdUnlocked && this.holdLeft > 0;
+    }
+
+    // 把托盘里的方块放进暂存格，算用掉 1 次；暂存格有方块时互换
     stash(trayIndex) {
-      if (!this.canAct() || !this.holdUnlocked || !this.tray[trayIndex]) return false;
+      if (!this.canAct() || !this.canStash() || !this.tray[trayIndex]) return false;
       const piece = this.tray[trayIndex];
       this.tray[trayIndex] = this.hold;
       this.hold = piece;
+      this.holdLeft--;
+      this._noteItemLeft('holdSlot', this.holdLeft);
       this._trigger('holdSlot', { at: 'hold' });
       this._normalizeTray();
       if (this._trayEmpty()) this._deal();
@@ -603,7 +616,7 @@
     unstash() {
       if (!this.canAct() || !this.hold) return false;
       this._addToTray(this.hold);
-      this.hold = null;
+      this._emptyHold();
       this._afterChange();
       return true;
     }
@@ -612,6 +625,7 @@
       if (!this.canAct() || this.bombs <= 0) return false;
       this.bombs--;
       this.bombsUsed++;
+      this._noteItemLeft('timeBomb', this.bombs);
       this._noteStuckChoice('bomb');
       const removed = this.board.clearArea(r, c, this.cfg.relic.bombRadius);
       this._emit('bombed', { r: r, c: c, removed: removed });
@@ -806,6 +820,7 @@
         relaxedDeals: this.relaxedDeals,
         bombsGained: this.bombsGained,
         bombsUsed: this.bombsUsed,
+        itemRelics: this._itemRecord(),
         rewardsGained: this.rewardsGained,
         rewardsUsed: this.rewardsUsed,
         sprintEntries: this.director.entries.sprint || 0,
@@ -827,6 +842,18 @@
         phaseEntries: this.director.entries,
         phaseGroups: this.director.groups
       };
+    }
+
+    // 这局拿到的道具类遗物：{ 遗物: { left: 剩余次数, usedUpStep: 用完时是第几步，没用完是 null } }
+    _itemRecord() {
+      const out = {};
+      this.relics.forEach(function (id) {
+        const left = this.itemLeft(id);
+        if (left === null) return;
+        const step = this.itemUsedUp[id];
+        out[id] = { left: left, usedUpStep: step === undefined ? null : step };
+      }, this);
+      return out;
     }
 
     // ---------- 调试面板用 ----------

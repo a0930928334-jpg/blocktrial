@@ -47,6 +47,11 @@
         D.relicIcon(ctx, id, x + 10 + ICON_SIZE / 2, y + CARD_H / 2, ICON_SIZE);
         D.text(ctx, relic.name, x + 96, y + CARD_H / 2 - 15, { size: 22, bold: true });
         D.text(ctx, relic.short(), x + 96, y + CARD_H / 2 + 16, { size: 17, color: T.textDim });
+        // 道具类用完就失效，加分类一直有效，一眼要能分开
+        if (relic.type === 'item') {
+          D.fillRound(ctx, x + w - 58, y + 10, 48, 26, 8, T.accent);
+          D.text(ctx, '限次', x + w - 34, y + 23, { size: 16, bold: true, align: 'center', color: '#06201c' });
+        }
         y += CARD_H + 10;
       });
     }

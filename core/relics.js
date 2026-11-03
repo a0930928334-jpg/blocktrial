@@ -33,18 +33,18 @@
     },
     {
       id: 'timeBomb', type: 'item', name: '炸弹',
-      short: function () { return '消' + rc().bombEvery + '次 得炸弹'; },
-      trigger: function () { return '炸弹 +1'; }
+      short: function () { return '立得' + rc().bombGrant + '颗炸弹'; },
+      trigger: function () { return '炸弹 +' + rc().bombGrant; }
     },
     {
       id: 'holdSlot', type: 'item', name: '暂存',
-      short: function () { return '多一个暂存位'; },
+      short: function () { return '暂存' + rc().holdUses + '次'; },
       trigger: function () { return '暂存'; }
     },
     {
       // 会改变发牌，每日挑战的序列要对所有人相同，所以不进每日候选池
       id: 'smallPiece', type: 'item', name: '小块', dailyExcluded: true,
-      short: function () { return '每' + rc().smallEvery + '组送小方块'; },
+      short: function () { return rc().smallGroups + '组送小方块'; },
       trigger: function () { return '小块 1×1'; }
     }
   ];

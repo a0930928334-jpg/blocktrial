@@ -396,9 +396,12 @@
         const cx = r.x + size / 2 + i * (size + 4);
         const cy = r.y + r.h / 2;
         const fx = self.anim.relicFlash(id);
+        const left = g.itemLeft(id);
+        ctx.save();
+        if (left === 0) ctx.globalAlpha = 0.35;
         D.relicIcon(ctx, id, cx, cy, size * fx.scale, { flash: fx.flash });
-        if (id === 'timeBomb') self._drawRelicProgress(ctx, g.bombProgress(), cx, cy, size);
-        if (id === 'smallPiece') self._drawRelicProgress(ctx, g.smallProgress(), cx, cy, size);
+        ctx.restore();
+        if (left !== null) self._drawItemLeft(ctx, left, cx, cy, size);
         self.ui.area('relic_' + id, cx - size / 2 - 2, r.y, size + 4, r.h, function () {
           const same = self.tip && self.tip.id === id;
           self.tip = same ? null : { id: id, x: cx, left: BG.Config.ui.relicTipMs };
@@ -423,12 +426,11 @@
       ctx.restore();
     }
 
-    // 炸弹和小块的图标进度，逻辑相同
-    _drawRelicProgress(ctx, p, cx, cy, size) {
-      const w = Math.max(30, size * 0.8);
+    // 道具类遗物图标上的剩余次数
+    _drawItemLeft(ctx, left, cx, cy, size) {
+      const w = Math.max(22, size * 0.55);
       D.fillRound(ctx, cx - w / 2, cy + size / 2 - 18, w, 19, 6, 'rgba(11, 14, 19, 0.92)');
-      const label = p.full ? '满' : p.value + '/' + p.of;
-      D.text(ctx, label, cx, cy + size / 2 - 8, { size: 16, bold: true, align: 'center', color: p.full ? T.gold : T.accent });
+      D.text(ctx, String(left), cx, cy + size / 2 - 8, { size: 16, bold: true, align: 'center', color: left > 0 ? T.accent : T.textDim });
     }
 
     // 点击图标后显示名称和一句话说明
@@ -442,7 +444,8 @@
       const y = r.y + r.h + 2;
       D.fillRound(ctx, x, y, w, h, 10, T.panelLight);
       D.text(ctx, relic.name, x + 12, y + 17, { size: 18, bold: true });
-      D.text(ctx, relic.short(), x + 12, y + 41, { size: 16, color: T.textDim });
+      const usedUp = this.game.itemLeft(this.tip.id) === 0;
+      D.text(ctx, usedUp ? '已用完' : relic.short(), x + 12, y + 41, { size: 16, color: T.textDim });
     }
 
     _drawBoard(ctx) {
@@ -585,7 +588,7 @@
     _drawHold(ctx, r) {
       const g = this.game;
       const drag = this.drag;
-      const over = drag && drag.source !== 'hold' && Kit.inside(r, drag.x, drag.y);
+      const over = drag && drag.source !== 'hold' && g.canStash() && Kit.inside(r, drag.x, drag.y);
       D.fillRound(ctx, r.x, r.y, r.w, r.h, 12, over ? T.accentDark : T.panel);
       ctx.save();
       ctx.setLineDash([5, 4]);
@@ -597,8 +600,11 @@
         const size = BG.Layout.snapDown(Math.min(cell, 14));
         D.piece(ctx, hold.shape, hold.color,
           r.x + (r.w - hold.shape.w * size) / 2, r.y + (r.h - hold.shape.h * size) / 2, size);
+        D.fillRound(ctx, r.x + r.w - 26, r.y + 3, 23, 19, 6, 'rgba(11, 14, 19, 0.92)');
+        D.text(ctx, String(g.holdLeft), r.x + r.w - 14.5, r.y + 12, { size: 16, bold: true, align: 'center', color: g.holdLeft > 0 ? T.accent : T.textDim });
       } else {
-        D.text(ctx, '暂存', r.x + r.w / 2, r.y + r.h / 2, { size: 16, color: T.textDim, align: 'center' });
+        D.text(ctx, '暂存', r.x + r.w / 2, r.y + r.h / 2 - 11, { size: 16, color: T.textDim, align: 'center' });
+        D.text(ctx, '×' + g.holdLeft, r.x + r.w / 2, r.y + r.h / 2 + 12, { size: 16, color: T.textDim, align: 'center' });
       }
     }
 
