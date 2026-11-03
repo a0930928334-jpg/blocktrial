@@ -76,7 +76,7 @@
     }).join('|');
   }
 
-  const ITEM_CODES = { timeBomb: 'b', holdSlot: 'h', smallPiece: 's' };
+  const ITEM_CODES = { timeBomb: 'b', holdSlot: 'h' };
 
   function rewardCounts(map) {
     return ['swap', 'revive'].map(function (id) { return (map && map[id]) || 0; });
@@ -112,7 +112,7 @@
       bon: r.bonusEntries || 0,
       sd: r.diedInSprint ? 1 : 0
     };
-    // 道具类遗物 { b 炸弹: [累计获得, 达到上限时第几步], h 暂存, s 小块: [剩余次数, 用完时第几步] }，没有道具类遗物的局不写
+    // 有次数的遗物 { b 炸弹: [累计获得, 达到上限时第几步], h 暂存: [剩余次数, 用完时第几步] }，没有的局不写
     const items = r.itemRelics || {};
     if (Object.keys(items).length > 0) {
       out.ir = {};

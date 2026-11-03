@@ -60,12 +60,14 @@
       this._handleEvents();
       for (let i = 0; i < this.queue.length; i++) this.queue[i].wait -= dt;
       while (this.queue.length > 0 && this.queue[0].wait <= 0) {
+        // 庆祝特效播完才弹需要玩家操作的面板
+        if (this._effectsPlaying()) break;
         this.queue.shift().run();
         if (BG.App.top() !== this) break;
       }
     }
 
-    // 等三选一和卡死面板都关掉才显示，不会被盖住。每日挑战的序列固定，难度不跟阶段走，所以不显示
+    // 每日挑战的序列固定，难度不跟阶段走，所以不显示
     _updateStageBanner(dt) {
       const g = this.game;
       if (this.stageBanner) {
@@ -77,12 +79,17 @@
         if (this.rewardToast.left <= 0) this.rewardToast = null;
       }
       const stage = g.stageNumber();
-      if (stage === this.bannerStage || g.phase !== 'playing') return;
+      if (stage === this.bannerStage) return;
       this.bannerStage = stage;
       if (g.fixedSequence) return;
       // 到了难度上限之后只报阶段，不能再说难度提升
       const raises = BG.Dealer.stageRaises(stage, BG.Config, g.mode);
       this.stageBanner = { text: '阶段 ' + stage + (raises ? ' · 难度提升' : ''), left: BG.Config.anim.stageBannerLife };
+    }
+
+    // 横幅、礼花、阶段切换、奖励提示还在播
+    _effectsPlaying() {
+      return this.celebrate.active() || !!this.stageBanner || !!this.stage.from || !!this.rewardToast;
     }
 
     _later(wait, run) {
@@ -386,12 +393,18 @@
       if (k > 0) this._drawProgressFill(ctx, p, barY, k, (!inRush || inReward) && g.phase !== 'over', inRush ? T.gold : T.accent);
 
       const r = this.L.relicRow;
-      if (g.relics.length === 0) {
+      const pending = g.hasPendingRelic();
+      if (g.relics.length === 0 && !pending) {
         D.text(ctx, '还没有遗物', r.x + 4, r.y + r.h / 2, { size: 16, color: T.textDim });
         return;
       }
       const self = this;
-      const size = Math.min(40, (r.w - 4 * (g.relics.length - 1)) / g.relics.length);
+      const slots = g.relics.length + (pending ? 1 : 0);
+      const size = Math.min(40, (r.w - 4 * (slots - 1)) / slots);
+      if (pending) {
+        const wave = 0.5 - 0.5 * Math.cos(2 * Math.PI * this.fx.time / BG.Config.anim.pendingRelicMs);
+        D.relicIcon(ctx, 'pending', r.x + size / 2 + g.relics.length * (size + 4), r.y + r.h / 2 - 3 * wave, size * (0.8 + 0.08 * wave));
+      }
       g.relics.forEach(function (id, i) {
         const cx = r.x + size / 2 + i * (size + 4);
         const cy = r.y + r.h / 2;
@@ -402,6 +415,7 @@
         D.relicIcon(ctx, id, cx, cy, size * fx.scale, { flash: fx.flash });
         ctx.restore();
         if (id === 'timeBomb') self._drawBombStatus(ctx, cx, cy, size);
+        else if (id === 'smallPiece') self._drawSmallProgress(ctx, cx, cy, size);
         else if (left !== null) self._drawItemLeft(ctx, left, cx, cy, size);
         self.ui.area('relic_' + id, cx - size / 2 - 2, r.y, size + 4, r.h, function () {
           const same = self.tip && self.tip.id === id;
@@ -441,7 +455,14 @@
       D.text(ctx, String(left), cx + size / 2 - 3.5, cy - size / 2 + 6.5, { size: 16, bold: true, align: 'center', color: left > 0 ? T.gold : T.textDim });
     }
 
-    // 道具类遗物图标上的剩余次数
+    _drawSmallProgress(ctx, cx, cy, size) {
+      const p = this.game.smallProgress();
+      const w = Math.max(30, size * 0.8);
+      D.fillRound(ctx, cx - w / 2, cy + size / 2 - 18, w, 19, 6, 'rgba(11, 14, 19, 0.92)');
+      D.text(ctx, p.value + '/' + p.of, cx, cy + size / 2 - 8, { size: 16, bold: true, align: 'center', color: T.accent });
+    }
+
+    // 有次数的遗物，图标上的剩余次数
     _drawItemLeft(ctx, left, cx, cy, size) {
       const w = Math.max(22, size * 0.55);
       D.fillRound(ctx, cx - w / 2, cy + size / 2 - 18, w, 19, 6, 'rgba(11, 14, 19, 0.92)');

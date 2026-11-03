@@ -1,5 +1,5 @@
 // 遗物定义。计分效果在 scoring.js，其余效果在 game.js 和 generator.js。
-// type：score 加分型，item 道具型。name 2～3 字，short 不超过 10 字。
+// type：score 加分型，item 道具型。limited：有次数，用完失效。name 2～3 字，short 不超过 10 字。
 (function () {
   'use strict';
 
@@ -32,19 +32,19 @@
       trigger: function () { return '连消 +' + rc().chainBonus; }
     },
     {
-      id: 'timeBomb', type: 'item', name: '炸弹',
+      id: 'timeBomb', type: 'item', limited: true, name: '炸弹',
       short: function () { return '消' + rc().bombEvery + '次 得炸弹'; },
       trigger: function () { return '炸弹 +1'; }
     },
     {
-      id: 'holdSlot', type: 'item', name: '暂存',
+      id: 'holdSlot', type: 'item', limited: true, name: '暂存',
       short: function () { return '暂存' + rc().holdUses + '次'; },
       trigger: function () { return '暂存'; }
     },
     {
       // 会改变发牌，每日挑战的序列要对所有人相同，所以不进每日候选池
       id: 'smallPiece', type: 'item', name: '小块', dailyExcluded: true,
-      short: function () { return rc().smallGroups + '组送小方块'; },
+      short: function () { return '每' + rc().smallEvery + '组送小方块'; },
       trigger: function () { return '小块 1×1'; }
     }
   ];

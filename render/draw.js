@@ -124,7 +124,8 @@
     chain: ['#####', '.....', '#####', '.....', '.....'],
     timeBomb: ['nnnnn', 'nooon', 'nooon', 'nooon', 'nnnnn'],
     holdSlot: ['.....', '.ooo.', '.o#o.', '.ooo.', '.....'],
-    smallPiece: ['.....', '.....', '..#..', '.....', '.....']
+    smallPiece: ['.....', '.....', '..#..', '.....', '.....'],
+    pending: ['..#..', '.###.', '#####', '.###.', '..#..']   // 待选遗物
   };
 
   // opts: { flash: 0～1 白色闪光 }
@@ -133,7 +134,7 @@
     const center = { x: snap(cx), y: snap(cy) };
     const half = snapDown(rawSize / 2);
     const size = half * 2;
-    const lit = BG.Relics.byId[id].type === 'score' ? T.gold : T.accent;
+    const lit = id === 'pending' || BG.Relics.byId[id].type === 'score' ? T.gold : T.accent;
     fillRound(ctx, center.x - half, center.y - half, size, size, size * 0.18, T.boardBg);
 
     const rows = ICON_BOARDS[id];

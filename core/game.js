@@ -54,7 +54,7 @@
       this.hold = null;
       this.holdUnlocked = false;
       this.holdLeft = 0;
-      this.smallLeft = 0;
+      this.groupsForSmall = 0;
       this.itemUsedUp = {};
       this.clearsForBomb = 0;
       this.bombCapStep = null;
@@ -236,11 +236,12 @@
       this._emit('dealt', {});
     }
 
-    // 小块遗物：接下来几组牌各有一块 1×1。不加块，把最大的一块换掉；已经有 1×1 就不用换。
+    // 小块遗物：每发几组牌，这组有一块是 1×1。不加块，把最大的一块换掉；已经有 1×1 就不用换。
     _tickSmallPiece() {
-      if (this.smallLeft <= 0) return false;
-      this.smallLeft--;
-      this._noteItemLeft('smallPiece', this.smallLeft);
+      if (!this.has('smallPiece')) return false;
+      this.groupsForSmall++;
+      if (this.groupsForSmall < this.cfg.relic.smallEvery) return false;
+      this.groupsForSmall = 0;
       let slot = this.tray.findIndex(function (p) { return p.shape.id === '1x1'; });
       const replaced = slot === -1;
       if (replaced) {
@@ -254,11 +255,14 @@
       return replaced;
     }
 
-    // 道具类遗物的剩余次数，加分类遗物返回 null
+    smallProgress() {
+      return { value: this.groupsForSmall, of: this.cfg.relic.smallEvery, full: false };
+    }
+
+    // 有次数的遗物还剩多少，其他遗物返回 null
     itemLeft(id) {
       if (id === 'timeBomb') return this.bombs + this.bombsLeftToGain();
       if (id === 'holdSlot') return this.holdLeft;
-      if (id === 'smallPiece') return this.smallLeft;
       return null;
     }
 
@@ -417,14 +421,16 @@
       this._tickRelicCounters(lines.length, removed);
       this._normalizeTray();
 
-      // 先看有没有过阶梯：选完遗物再发牌，遗物和考验期才能作用到这组牌
       this._checkTiers();
-      if (this._trayEmpty()) {
-        if (this.phase === 'relicPick') this.dealPending = true;
-        else this._deal();
-      }
+      if (this._trayEmpty()) this._finishGroup();
       this._afterChange();
       return true;
+    }
+
+    // 这组放完了：有待选的遗物就先选，选完再发牌，遗物和考验期才能作用到下一组
+    _finishGroup() {
+      if (this.pendingTiers.length > 0 && this._nextOffer()) this.dealPending = true;
+      else this._deal();
     }
 
     // 分数台阶和新纪录。一次加分跨过多个时全部记入统计，但只播一次，优先新纪录
@@ -542,7 +548,11 @@
         this.tierIndex++;
       }
       this._checkRewards();
-      if (this.pendingTiers.length > 0 && this.phase !== 'relicPick') this._nextOffer();
+    }
+
+    // 过了阶梯、这组还没放完，等着选遗物
+    hasPendingRelic() {
+      return this.pendingTiers.length > 0 || this.phase === 'relicPick';
     }
 
     // 第 index 个奖励：{ score, id }
@@ -608,8 +618,6 @@
       if (id === 'holdSlot') {
         this.holdUnlocked = true;
         this.holdLeft = r.holdUses;
-      } else if (id === 'smallPiece') {
-        this.smallLeft = r.smallGroups;
       }
       this._emit('relicGained', { id: id });
     }
@@ -631,7 +639,7 @@
       this._noteItemLeft('holdSlot', this.holdLeft);
       this._trigger('holdSlot', { at: 'hold' });
       this._normalizeTray();
-      if (this._trayEmpty()) this._deal();
+      if (this._trayEmpty()) this._finishGroup();
       this._afterChange();
       return true;
     }
@@ -691,6 +699,8 @@
         this.currentStuck = null;
         return;
       }
+      // 待选的遗物先选，选完再判断是否卡死
+      if (this.pendingTiers.length > 0 && this._nextOffer()) return;
       if (this.phase !== 'stuck') {
         this.currentStuck = { step: this.placements, panel: false, choices: [], tried: {} };
         this.stuckLog.push(this.currentStuck);
@@ -867,8 +877,8 @@
       };
     }
 
-    // 这局拿到的道具类遗物。炸弹：{ gained: 累计获得, capStep: 达到上限时是第几步，没达到是 null }；
-    // 其他：{ left: 剩余次数, usedUpStep: 用完时是第几步，没用完是 null }
+    // 这局拿到的有次数的遗物。炸弹：{ gained: 累计获得, capStep: 达到上限时是第几步，没达到是 null }；
+    // 暂存：{ left: 剩余次数, usedUpStep: 用完时是第几步，没用完是 null }
     _itemRecord() {
       const out = {};
       this.relics.forEach(function (id) {
@@ -902,6 +912,8 @@
       if (this.tierIndex < tiers.length) this.score = Math.max(this.score, tiers[this.tierIndex]);
       else if (this.mode === 'relic') this.score = Math.max(this.score, this.rewardAt(this.rewardIndex).score);
       this._checkTiers();
+      // 调试用，不等这组放完
+      if (this.pendingTiers.length > 0 && this.phase !== 'relicPick') this._nextOffer();
     }
 
     debugFail() {
