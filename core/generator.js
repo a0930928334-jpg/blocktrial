@@ -22,7 +22,7 @@
       this.cfg = cfg;
     }
 
-    // ctx: { score, groupIndex, has(id), bigMult?, placements, szAllowed, szBoard?, oneAllowed, board?, bigAllowed? }
+    // ctx: { score, groupIndex, has(id), bigMult?, smallMult?, placements, szAllowed, szBoard?, oneAllowed, board?, bigAllowed? }
     // board 只在后期规则下传入：放不下的形状权重为 0。szBoard：S/Z 合法位置太少时权重为 0。
     // 返回 { 形状id: 权重 }
     weights(ctx) {
@@ -42,6 +42,7 @@
       BG.Shapes.list.forEach(function (shape) {
         let w = g.shapeWeights[shape.id] || 0;
         if (shape.count >= g.bigCells) w = ctx.bigAllowed === false ? 0 : w * boost;
+        if (shape.count <= g.smallCells && ctx.smallMult !== undefined) w *= ctx.smallMult;
         if (g.sz.ids.indexOf(shape.id) !== -1) {
           w *= sz;
           if (w > 0 && ctx.szBoard && ctx.szBoard.countPlacements(shape) < g.sz.minMoves) w = 0;

@@ -21,6 +21,8 @@
       this.fx = new BG.ScoreFx(BG.Config.anim.scoreJump);
       this.celebrate = new BG.Celebration(BG.Config.anim.celebrate);
       this.stage = new BG.StageView(this.game.stageNumber(), BG.Config.anim.stageFade);
+      this.bannerStage = this.game.stageNumber();
+      this.stageBanner = null;
       this.resize(BG.Screen);
     }
 
@@ -49,6 +51,7 @@
       this.game.tick(dt);
       this.anim.update(dt);
       this.updateFx(dt);
+      this._updateStageBanner(dt);
       if (this.tip) {
         this.tip.left -= dt;
         if (this.tip.left <= 0) this.tip = null;
@@ -59,6 +62,20 @@
         this.queue.shift().run();
         if (BG.App.top() !== this) break;
       }
+    }
+
+    // 等三选一和卡死面板都关掉才显示，不会被盖住。每日挑战的序列固定，难度不跟阶段走，所以不显示
+    _updateStageBanner(dt) {
+      const g = this.game;
+      if (this.stageBanner) {
+        this.stageBanner.left -= dt;
+        if (this.stageBanner.left <= 0) this.stageBanner = null;
+      }
+      const stage = g.stageNumber();
+      if (stage === this.bannerStage || g.phase !== 'playing') return;
+      this.bannerStage = stage;
+      if (g.fixedSequence) return;
+      this.stageBanner = { text: '阶段 ' + stage + ' · 难度提升', left: BG.Config.anim.stageBannerLife };
     }
 
     _later(wait, run) {
@@ -114,11 +131,12 @@
             self._onMilestone(e);
             break;
           case 'relicGained':
+          case 'rewardGained':
             BG.Audio.play('relic');
             break;
           case 'rushStart':
             BG.Audio.play('win');
-            self._showToast('通关！进入冲分阶段');
+            self._showToast(self.game.fixedSequence ? '进入冲分阶段' : '进入奖励阶段');
             break;
           default:
             break;
@@ -129,6 +147,8 @@
       events.forEach(function (e) {
         if (e.type === 'relicOffer') {
           self._later(wait, function () { app.push(new BG.RelicPickScene(self.game)); });
+        } else if (e.type === 'rewardOffer') {
+          self._later(wait, function () { app.push(new BG.RewardPickScene(self.game)); });
         } else if (e.type === 'stuck' || e.type === 'stuckReopen') {
           self._later(wait, function () { self._openStuckPanel(); });
         } else if (e.type === 'gameOver') {
@@ -215,7 +235,7 @@
     }
 
     _onGameOver() {
-      BG.Audio.play(this.game.endReason === 'clear' ? 'win' : 'fail');
+      BG.Audio.play('fail');
       BG.App.showResult(this.game);
     }
 
@@ -239,6 +259,7 @@
       this._drawTray(ctx);
       this._drawTools(ctx);
       this.celebrate.drawBanner(ctx, this.L.header, this.stage.color('glow'));
+      this._drawStageBanner(ctx);
       this._drawBanners(ctx);
       this._drawRelicTip(ctx);
       this.anim.drawParticles(ctx);
@@ -246,6 +267,24 @@
       this._drawDragPiece(ctx);
       this.anim.drawStamps(ctx);
       this.anim.drawFloats(ctx, screen);
+    }
+
+    // 叠在棋盘上方一点点，结束前淡出。不接管输入，和分数台阶的横幅（在分数区）不重叠
+    _drawStageBanner(ctx) {
+      const s = this.stageBanner;
+      if (!s) return;
+      const b = this.L.board;
+      const k = s.left / BG.Config.anim.stageBannerLife;
+      ctx.font = T.font(18, true);
+      const w = ctx.measureText(s.text).width + 32;
+      const x = b.x + (b.size - w) / 2;
+      const y = b.y + 8;
+      ctx.save();
+      ctx.globalAlpha = Math.min(1, k * 4);
+      D.fillRound(ctx, x, y, w, 36, 18, 'rgba(11, 14, 19, 0.9)');
+      D.strokeRound(ctx, x, y, w, 36, 18, 1.5, this.stage.color('glow'));
+      D.text(ctx, s.text, x + w / 2, y + 18, { size: 18, bold: true, align: 'center', color: this.stage.color('glow') });
+      ctx.restore();
     }
 
     _drawHeader(ctx) {
@@ -298,20 +337,26 @@
       const p = this.L.progress;
       const tiers = BG.Config.relic.tiers;
       const idx = Math.min(g.tierIndex, tiers.length - 1);
-      const next = tiers[idx];
-      const prev = idx > 0 ? tiers[idx - 1] : 0;
+      const inRush = g.rushStartStep !== null;
+      // 遗物模式过了最后一档，进度条改成走向下一个奖励，每日挑战是冲分，没有下一档
+      const inReward = inRush && !g.fixedSequence;
+      const next = inReward ? g.rewardScoreAt(g.rewardIndex) : tiers[idx];
+      const lastTier = tiers[tiers.length - 1];
+      const prev = inReward ? (g.rewardIndex > 0 ? g.rewardScoreAt(g.rewardIndex - 1) : lastTier) : (idx > 0 ? tiers[idx - 1] : 0);
       // 进度条和分数数字同步，跟着滚动的数值走
       const shown = this.fx.display(g.score);
       const left = Math.max(0, next - shown);
       const isLast = idx === tiers.length - 1;
-      const inRush = g.rushStartStep !== null;
-      const progressText = inRush ? '冲分阶段，坚持到卡死' : (isLast ? '距通关 ' : '距下一个遗物 ') + left + ' 分';
+      let progressText = '冲分阶段，坚持到卡死';
+      if (inReward) progressText = '距下一个奖励 ' + left + ' 分';
+      else if (!inRush) progressText = (isLast ? (g.fixedSequence ? '距冲分阶段 ' : '距奖励阶段 ') : '距下一个遗物 ') + left + ' 分';
       D.text(ctx, progressText, p.x + 4, p.y + 10, { size: 16, color: inRush ? T.gold : T.textDim });
-      D.text(ctx, '阶梯 ' + g.tierIndex + '/' + tiers.length, p.x + p.w - 4, p.y + 10, { size: 16, color: T.textDim, align: 'right' });
+      const rightText = inReward ? '奖励 ' + BG.Stats.sumMap(g.rewardsGained) : '阶梯 ' + g.tierIndex + '/' + tiers.length;
+      D.text(ctx, rightText, p.x + p.w - 4, p.y + 10, { size: 16, color: inReward ? T.gold : T.textDim, align: 'right' });
       const barY = p.y + 22;
       D.fillRound(ctx, p.x, barY, p.w, 7, 3.5, this.stage.color('cellEmpty'));
-      const k = inRush ? 1 : Math.max(0, Math.min(1, (shown - prev) / (next - prev)));
-      if (k > 0) this._drawProgressFill(ctx, p, barY, k, !inRush && g.phase !== 'over');
+      const k = inRush && !inReward ? 1 : Math.max(0, Math.min(1, (shown - prev) / (next - prev)));
+      if (k > 0) this._drawProgressFill(ctx, p, barY, k, (!inRush || inReward) && g.phase !== 'over', inRush ? T.gold : T.accent);
 
       const r = this.L.relicRow;
       if (g.relics.length === 0) {
@@ -335,16 +380,16 @@
     }
 
     // 接近下一档时轻微脉动：变高一点、变亮一点
-    _drawProgressFill(ctx, p, barY, k, canPulse) {
+    _drawProgressFill(ctx, p, barY, k, canPulse, color) {
       const cfg = BG.Config.anim.progressPulse;
       const w = Math.max(7, p.w * k);
       if (!canPulse || 1 - k >= cfg.remainRatio) {
-        D.fillRound(ctx, p.x, barY, w, 7, 3.5, T.accent);
+        D.fillRound(ctx, p.x, barY, w, 7, 3.5, color);
         return;
       }
       const wave = 0.5 - 0.5 * Math.cos(2 * Math.PI * this.fx.time / cfg.periodMs);
       const extra = cfg.extraHeight * wave;
-      D.fillRound(ctx, p.x, barY - extra / 2, w, 7 + extra, (7 + extra) / 2, T.accent);
+      D.fillRound(ctx, p.x, barY - extra / 2, w, 7 + extra, (7 + extra) / 2, color);
       ctx.save();
       ctx.globalAlpha = cfg.glow * wave;
       D.fillRound(ctx, p.x, barY - extra / 2, w, 7 + extra, (7 + extra) / 2, '#ffffff');
@@ -453,7 +498,8 @@
       const app = BG.App;
       const can = g.canAct();
       const tools = [];
-      if (g.has('timeBomb')) {
+      // 奖励的炸弹不需要炸弹遗物
+      if (g.has('timeBomb') || g.bombs > 0) {
         tools.push({
           id: 'bomb', label: '炸弹', sub: '×' + g.bombs, disabled: !can || g.bombs <= 0, style: self.aiming ? 'gold' : undefined,
           onTap: function () {
@@ -463,9 +509,17 @@
         });
       }
       if (g.holdUnlocked) tools.push({ id: 'hold' });
+      // 有奖励的免费次数时先用免费的，不看广告
+      const free = g.freeSwaps > 0;
       tools.push({
-        id: 'swap', label: '换组', sub: '×' + g.swapsLeft(), disabled: !can || g.phase === 'stuck' || g.swapsLeft() <= 0,
+        id: 'swap', label: '换组', sub: free ? '免费×' + g.freeSwaps : '×' + g.swapsLeft(), free: free,
+        disabled: !can || g.phase === 'stuck' || (!free && g.swapsLeft() <= 0),
+        style: free ? 'gold' : undefined,
         onTap: function () {
+          if (free) {
+            g.swapTray(true);
+            return;
+          }
           app.watchRewarded('swapTray', g).then(function (ok) {
             if (ok) g.swapTray();
           });
@@ -494,7 +548,7 @@
           this.ui.button(ctx, t.id, x, r.y, w, r.h, t.label, {
             sub: t.sub, size: 16, bold: false, disabled: t.disabled, style: t.style, onTap: t.onTap
           });
-          if (t.id === 'swap') D.adIcon(ctx, x + w / 2 - 21, r.y + r.h / 2 + 12, 12, t.disabled);
+          if (t.id === 'swap' && !t.free) D.adIcon(ctx, x + w / 2 - 21, r.y + r.h / 2 + 12, 12, t.disabled);
         }
         x += w + gap;
       }, this);

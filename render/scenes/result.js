@@ -5,7 +5,7 @@
   const T = BG.Theme;
   const D = BG.Draw;
 
-  const REASONS = { clear: '通关！', stuck: '无处可放', abandon: '已放弃' };
+  const REASONS = { stuck: '无处可放', abandon: '已放弃' };
 
   class ResultScene {
     // info: { isRecord, best, rank, rankUp }
@@ -33,18 +33,21 @@
       const w = Math.min(screen.width - safe.left - safe.right - 32, 420);
       const x = safe.left + (screen.width - safe.left - safe.right - w) / 2;
       const cx = x + w / 2;
-      const tiers = BG.Config.relic.tiers.length;
+      const rewards = g.mode === 'relic' ? Object.keys(g.rewardsGained) : [];
 
-      const relicRows = g.relicMode ? Math.ceil(g.relics.length / 2) : 0;
-      const contentH = 40 + 60 + 34 + 30 + 34 * (g.relicMode ? 2 : 1) + (g.relicMode ? 34 + relicRows * 44 : 0) + 20 + 76 + 10 + 44;
       const usable = screen.height - safe.top - safe.bottom;
+      const heightWith = function (cols) {
+        const relicRows = g.relicMode ? Math.ceil(g.relics.length / cols) : 0;
+        return 40 + 60 + 34 + 30 + 34 + (g.relicMode ? 34 + relicRows * 44 : 0) + (rewards.length ? 34 + 40 : 0) + 20 + 76 + 10 + 44;
+      };
+      // 遗物两列，小屏放不下时改成三列
+      const relicCols = heightWith(2) + 20 > usable ? 3 : 2;
+      const relicRows = g.relicMode ? Math.ceil(g.relics.length / relicCols) : 0;
+      const contentH = heightWith(relicCols);
       let y = safe.top + Math.max(10, (usable - contentH) / 2);
       this.celebrate.drawBehind(ctx);
 
-      const rushed = g.rushStartStep !== null;
-      D.text(ctx, rushed ? '通关，冲分结束' : (REASONS[g.endReason] || '本局结束'), cx, y + 18, {
-        size: 24, bold: true, align: 'center', color: g.endReason === 'clear' || rushed ? T.gold : T.text
-      });
+      D.text(ctx, REASONS[g.endReason] || '本局结束', cx, y + 18, { size: 24, bold: true, align: 'center' });
       y += 40;
       D.text(ctx, String(g.score), cx, y + 30, { size: 52, bold: true, align: 'center' });
       y += 60;
@@ -64,17 +67,27 @@
       };
       row('用时', D.timeText(g.elapsedMs));
       if (g.relicMode) {
-        row('到达阶梯', g.tierIndex + ' / ' + tiers);
         D.text(ctx, g.relics.length ? '获得的遗物' : '没有获得遗物', x + 4, y + 15, { size: 16, color: T.textDim });
         y += 34;
-        const colW = w / 2;
+        const colW = w / relicCols;
         g.relics.forEach(function (id, i) {
-          const cellX = x + (i % 2) * colW;
-          const cellY = y + Math.floor(i / 2) * 44;
+          const cellX = x + (i % relicCols) * colW;
+          const cellY = y + Math.floor(i / relicCols) * 44;
           D.relicIcon(ctx, id, cellX + 20, cellY + 20, 36);
           D.text(ctx, BG.Relics.byId[id].name, cellX + 44, cellY + 20, { size: 16 });
         });
         y += relicRows * 44;
+      }
+      if (rewards.length) {
+        D.text(ctx, '获得的奖励', x + 4, y + 15, { size: 16, color: T.textDim });
+        y += 34;
+        const colW = w / rewards.length;
+        rewards.forEach(function (id, i) {
+          const cellX = x + i * colW;
+          D.rewardIcon(ctx, id, cellX + 18, y + 18, 32);
+          D.text(ctx, BG.Rewards[id].name + ' ×' + g.rewardsGained[id], cellX + 40, y + 18, { size: 16, color: T.gold });
+        });
+        y += 40;
       }
       y += 16;
 

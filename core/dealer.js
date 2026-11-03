@@ -254,16 +254,22 @@
     return cfg.dealer.normal[mode] || cfg.dealer.normal.relic;
   }
 
-  // 平常期此刻的选牌范围，随已放置步数变难，曲线按模式区分
-  function normalBand(placements, cfg, mode) {
-    const center = BG.Generator.interpolate(normalCurve(mode, cfg).center, placements);
+  // 平常期此刻的选牌范围，随阶段变难，曲线按模式区分
+  function normalBand(stage, cfg, mode) {
+    const center = BG.Generator.interpolate(normalCurve(mode, cfg).center, stage);
     const half = cfg.dealer.normal.halfWidth;
     return [Math.max(0, center - half), Math.min(1, center + half)];
   }
 
   // 平常期大方块进入候选的权重倍率
-  function normalBigMult(placements, cfg, mode) {
-    return BG.Generator.interpolate(normalCurve(mode, cfg).bigMult, placements);
+  function normalBigMult(stage, cfg, mode) {
+    return BG.Generator.interpolate(normalCurve(mode, cfg).bigMult, stage);
+  }
+
+  // 平常期小方块（generator.smallCells 格以内）进入候选的权重倍率，没写曲线的模式不变
+  function normalSmallMult(stage, cfg, mode) {
+    const curve = normalCurve(mode, cfg).smallMult;
+    return curve ? BG.Generator.interpolate(curve, stage) : 1;
   }
 
   // 3 块都要有位置的规则是否适用：平常期后段、冲刺期、考验期、复活缓冲期
@@ -278,7 +284,7 @@
 
   // candidates：[{ pieces, metrics }]。返回选中的候选，没有合适的返回 null。
   // 后期规则下优先从 3 块都有位置的候选里选，一个都没有时才退到原来的范围。
-  function select(phase, candidates, rng, cfg, placements, mode) {
+  function select(phase, candidates, rng, cfg, placements, mode, stage) {
     const d = cfg.dealer;
     if (isLate(phase, placements, cfg, mode) && candidates.some(fullFit)) {
       candidates = candidates.filter(fullFit);
@@ -316,7 +322,7 @@
     }
     // 难但有解：候选里有能全部放下的组时，不发放不完的组
     const pool = solvable.length ? solvable : placeable;
-    return pool.length ? pickFromBand(pool, normalBand(placements, cfg, mode), rng) : null;
+    return pool.length ? pickFromBand(pool, normalBand(stage, cfg, mode), rng) : null;
   }
 
   // ---------- 阶段状态 ----------
@@ -352,7 +358,7 @@
     }
 
     onTier() {
-      if (this.dynamic) this.bonusLeft = this.cfg.dealer.bonus.groups;
+      if (this.dynamic) this.bonusLeft = Math.max(this.bonusLeft, this.cfg.dealer.bonus.afterTier);
     }
 
     onRelicPicked(groups) {
@@ -413,7 +419,7 @@
 
   BG.Dealer = {
     evaluate: evaluate, select: select, isLate: isLate, fullFit: fullFit,
-    normalBand: normalBand, normalBigMult: normalBigMult, boardRows: boardRows
+    normalBand: normalBand, normalBigMult: normalBigMult, normalSmallMult: normalSmallMult, boardRows: boardRows
   };
   BG.DealDirector = DealDirector;
 })();

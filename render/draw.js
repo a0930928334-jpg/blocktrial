@@ -163,6 +163,50 @@
     }
   }
 
+  // 奖励图标：金色，和遗物的迷你棋盘区分开
+  function rewardIcon(ctx, id, cx, cy, rawSize) {
+    const half = snapDown(rawSize / 2);
+    const x = snap(cx);
+    const y = snap(cy);
+    const s = half * 2;
+    fillRound(ctx, x - half, y - half, s, s, s * 0.22, T.gold);
+    const ink = '#2a1e04';
+    ctx.save();
+    ctx.fillStyle = ink;
+    ctx.strokeStyle = ink;
+    ctx.lineWidth = Math.max(2, s * 0.08);
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    if (id === 'bomb') {
+      ctx.arc(x - s * 0.04, y + s * 0.08, s * 0.25, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(x + s * 0.12, y - s * 0.1);
+      ctx.quadraticCurveTo(x + s * 0.18, y - s * 0.3, x + s * 0.32, y - s * 0.3);
+      ctx.stroke();
+    } else if (id === 'swap') {
+      // 上下两个方向相反的箭头
+      [[-0.16, 1], [0.16, -1]].forEach(function (a) {
+        const ay = y + s * a[0];
+        const d = a[1];
+        ctx.moveTo(x - s * 0.28 * d, ay);
+        ctx.lineTo(x + s * 0.28 * d, ay);
+        ctx.moveTo(x + s * 0.14 * d, ay - s * 0.12);
+        ctx.lineTo(x + s * 0.28 * d, ay);
+        ctx.lineTo(x + s * 0.14 * d, ay + s * 0.12);
+      });
+      ctx.stroke();
+    } else {
+      // 爱心
+      ctx.moveTo(x, y + s * 0.3);
+      ctx.bezierCurveTo(x - s * 0.42, y + s * 0.02, x - s * 0.3, y - s * 0.32, x, y - s * 0.12);
+      ctx.bezierCurveTo(x + s * 0.3, y - s * 0.32, x + s * 0.42, y + s * 0.02, x, y + s * 0.3);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
   // 广告图标：圆角底上一个播放三角
   function adIcon(ctx, cx, cy, size, disabled) {
     const half = snapDown(size / 2);
@@ -196,6 +240,7 @@
     text: text,
     wrap: wrap,
     relicIcon: relicIcon,
+    rewardIcon: rewardIcon,
     adIcon: adIcon,
     timeText: timeText
   };

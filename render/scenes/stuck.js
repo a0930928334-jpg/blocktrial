@@ -44,6 +44,17 @@
       });
     }
 
+    // 奖励的免费次数，不看广告
+    _freeSwap() {
+      this.game.swapTray(true);
+      this._closeIfDone();
+    }
+
+    _freeRevive() {
+      this.game.revive(true);
+      this._closeIfDone();
+    }
+
     _giveUp() {
       BG.App.pop();
       this.game.giveUpStuck();
@@ -80,6 +91,17 @@
           ui.button(ctx, 'bomb', x, y, w, BUTTON_H, '使用炸弹', {
             style: 'gold', size: 18, sub: '免费，还有 ' + o.count + ' 颗',
             onTap: function () { self._useBomb(); }
+          });
+        } else if (o.id === 'freeSwap') {
+          ui.button(ctx, 'freeSwap', x, y, w, BUTTON_H, '免费换一组', {
+            style: 'gold', size: 18, sub: '奖励，还有 ' + o.left + ' 次',
+            onTap: function () { self._freeSwap(); }
+          });
+        } else if (o.id === 'freeRevive') {
+          ui.button(ctx, 'freeRevive', x, y, w, BUTTON_H, '免费复活', {
+            style: 'gold', size: 18, disabled: !o.works,
+            sub: o.works ? '奖励，清 3×3，还有 ' + o.left + ' 次' : '清完也放不下，此项不可用',
+            onTap: function () { self._freeRevive(); }
           });
         } else if (o.id === 'swap') {
           self._adButton(ctx, 'swap', x, y, w, '换一组', '看广告，还剩 ' + o.left + ' 次', {

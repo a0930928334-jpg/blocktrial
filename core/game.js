@@ -1,7 +1,8 @@
 // 单局状态机。所有操作都把结果写进事件队列，由场景转成动画和音效。
 // phase：
 //   playing   正常游戏
-//   relicPick 等待三选一
+//   relicPick 等待遗物三选一
+//   rewardPick 等待奖励三选一
 //   stuck     没有方块放得下，等玩家在面板上选择：炸弹、换一组、复活、放弃
 //   over      本局结束
 (function () {
@@ -45,6 +46,14 @@
       this.tierIndex = 0;
       this.pendingTiers = [];
       this.offer = null;
+      this.rewardIndex = 0;
+      this.pendingRewards = [];
+      this.rewardOffer = null;
+      this.rewardsGained = {};
+      this.rewardsUsed = {};
+      this.freeSwaps = 0;
+      this.freeRevives = 0;
+      this.rewardBombs = 0;
 
       this.hold = null;
       this.holdUnlocked = false;
@@ -246,7 +255,10 @@
       const d = this.cfg.dealer;
       const late = BG.Dealer.isLate(phase, this.placements, this.cfg, this.mode);
       const ctx = this._dealCtx(phase);
-      if (phase === 'normal') ctx.bigMult = BG.Dealer.normalBigMult(this.placements, this.cfg, this.mode);
+      if (phase === 'normal') {
+        ctx.bigMult = BG.Dealer.normalBigMult(this.stageNumber(), this.cfg, this.mode);
+        ctx.smallMult = BG.Dealer.normalSmallMult(this.stageNumber(), this.cfg, this.mode);
+      }
       const budget = { left: d.dealNodeBudget };
       const candidates = [];
       const roll = function (self, tag, weights, total) {
@@ -265,7 +277,7 @@
         roll(this, 'dynamicSmall', small, Math.ceil(d.candidates / 3));
       }
       const pickRng = new BG.RNG(BG.RNG.derive(this.seed, 'dynamicPick', this.groupIndex));
-      return BG.Dealer.select(phase, candidates, pickRng, this.cfg, this.placements, this.mode);
+      return BG.Dealer.select(phase, candidates, pickRng, this.cfg, this.placements, this.mode, this.stageNumber());
     }
 
     // ---------- 托盘 ----------
@@ -373,9 +385,8 @@
 
       // 先看有没有过阶梯：选完遗物再发牌，遗物和考验期才能作用到这组牌
       this._checkTiers();
-      if (this.phase === 'over') return true;
       if (this._trayEmpty()) {
-        if (this.phase === 'relicPick') this.dealPending = true;
+        if (this._picking()) this.dealPending = true;
         else this._deal();
       }
       this._afterChange();
@@ -397,10 +408,12 @@
       else if (crossed) this._emit('milestone', { kind: 'score', score: level * step, level: level });
     }
 
-    // 阶段序号，从 1 开始：遗物模式按阶梯，经典和每日挑战按分数台阶
+    // 阶段序号，从 1 开始：遗物模式按阶梯，过了最后一档按分数走得更快；经典和每日挑战按分数台阶
     stageNumber() {
-      if (this.mode === 'relic') return this.tierIndex + 1;
-      return Math.floor(this.score / this.cfg.milestone.scoreStep) + 1;
+      if (this.mode !== 'relic') return Math.floor(this.score / this.cfg.milestone.scoreStep) + 1;
+      const tiers = this.cfg.relic.tiers;
+      if (this.tierIndex < tiers.length) return this.tierIndex + 1;
+      return tiers.length + 1 + Math.floor((this.score - tiers[tiers.length - 1]) / this.cfg.relic.stageStepAfter);
     }
 
     _updateCombo(lineCount) {
@@ -477,11 +490,7 @@
       while (this.tierIndex <= last && this.score >= tiers[this.tierIndex]) {
         if (this.tierIndex === last) {
           this.tierIndex++;
-          if (!this.fixedSequence) {
-            this.endGame('clear');
-            return;
-          }
-          // 每日挑战到达最后一档不结束，继续冲分直到卡死，用最终分数比较
+          // 到达最后一档不结束，玩到卡死，用最终分数比较。遗物模式叫奖励阶段，每日挑战叫冲分
           this.rushStartStep = this.placements;
           this.rushStartMs = this.elapsedMs;
           this._emit('rushStart', {});
@@ -495,9 +504,38 @@
         this.tierIndex++;
         this.director.onTier();
       }
-      if (this.pendingTiers.length > 0 && this.phase !== 'relicPick') this._nextOffer();
+      this._checkRewards();
+      if ((this.pendingTiers.length > 0 || this.pendingRewards.length > 0) && !this._picking()) this._nextOffer();
     }
 
+    _picking() {
+      return this.phase === 'relicPick' || this.phase === 'rewardPick';
+    }
+
+    // 第 index 个奖励台阶的分数
+    rewardScoreAt(index) {
+      const r = this.cfg.relic.reward;
+      if (index < r.scores.length) return r.scores[index];
+      return r.scores[r.scores.length - 1] + r.every * (index - r.scores.length + 1);
+    }
+
+    _checkRewards() {
+      if (this.mode !== 'relic') return;
+      while (this.score >= this.rewardScoreAt(this.rewardIndex)) {
+        this.pendingRewards.push(this.rewardIndex);
+        this.rewardIndex++;
+      }
+    }
+
+    // 拿过的免费复活不再出现，所以后面可能只剩两个选项
+    _rewardChoices(index) {
+      const r = this.cfg.relic.reward;
+      const gained = this.rewardsGained.revive || 0;
+      const pool = r.pool.filter(function (id) { return id !== 'revive' || gained < r.reviveMax; });
+      return new BG.RNG(BG.RNG.derive(this.seed, 'reward', index)).shuffle(pool);
+    }
+
+    // 先出完遗物，再出奖励
     _nextOffer() {
       while (this.pendingTiers.length > 0) {
         const tier = this.pendingTiers.shift();
@@ -509,7 +547,25 @@
           return true;
         }
       }
+      if (this.pendingRewards.length > 0) {
+        const index = this.pendingRewards.shift();
+        this.rewardOffer = { index: index, ids: this._rewardChoices(index) };
+        this.phase = 'rewardPick';
+        this._emit('rewardOffer', {});
+        return true;
+      }
       return false;
+    }
+
+    // 选完之后：还有没选的就接着弹，都选完才发牌
+    _afterPick() {
+      if (this._nextOffer()) return;
+      this.phase = 'playing';
+      if (this.dealPending) {
+        this.dealPending = false;
+        this._deal();
+      }
+      this._afterChange();
     }
 
     pickRelic(id) {
@@ -522,14 +578,30 @@
       const rng = new BG.RNG(BG.RNG.derive(this.seed, 'trial', tier));
       this.director.onRelicPicked(t.minGroups + rng.int(t.maxGroups - t.minGroups + 1));
       this.offer = null;
-      if (this._nextOffer()) return true;
-      this.phase = 'playing';
-      if (this.dealPending) {
-        this.dealPending = false;
-        this._deal();
-      }
-      this._afterChange();
+      this._afterPick();
       return true;
+    }
+
+    pickReward(id) {
+      if (this.phase !== 'rewardPick' || this.rewardOffer.ids.indexOf(id) === -1) return false;
+      this.rewardsGained[id] = (this.rewardsGained[id] || 0) + 1;
+      if (id === 'bomb') {
+        this.bombs++;
+        this.bombsGained++;
+        this.rewardBombs++;
+      } else if (id === 'swap') {
+        this.freeSwaps++;
+      } else {
+        this.freeRevives++;
+      }
+      this._emit('rewardGained', { id: id });
+      this.rewardOffer = null;
+      this._afterPick();
+      return true;
+    }
+
+    _noteRewardUsed(id) {
+      this.rewardsUsed[id] = (this.rewardsUsed[id] || 0) + 1;
     }
 
     _grantRelic(id) {
@@ -566,6 +638,11 @@
       if (!this.canAct() || this.bombs <= 0) return false;
       this.bombs--;
       this.bombsUsed++;
+      // 炸弹是同一堆，先算用掉奖励来的
+      if (this.rewardBombs > 0) {
+        this.rewardBombs--;
+        this._noteRewardUsed('bomb');
+      }
       this._noteStuckChoice('bomb');
       const removed = this.board.clearArea(r, c, this.cfg.relic.bombRadius);
       this._emit('bombed', { r: r, c: c, removed: removed });
@@ -577,11 +654,17 @@
       return this.cfg.ads.swapTrayLimit - this.swapsUsed;
     }
 
-    // 看完激励视频后调用
-    swapTray() {
-      if (!this.canAct() || this.swapsLeft() <= 0 || this._trayEmpty()) return false;
-      this.swapsUsed++;
-      this._noteStuckChoice('swap');
+    // 看完激励视频后调用。free：用奖励的免费次数，不看广告，也不占广告次数
+    swapTray(free) {
+      if (!this.canAct() || (free ? this.freeSwaps : this.swapsLeft()) <= 0 || this._trayEmpty()) return false;
+      if (free) {
+        this.freeSwaps--;
+        this._noteRewardUsed('swap');
+        this._noteStuckChoice('freeSwap');
+      } else {
+        this.swapsUsed++;
+        this._noteStuckChoice('swap');
+      }
       this._rerollTray();
       this._afterChange();
       return true;
@@ -634,6 +717,8 @@
       const tried = this.currentStuck ? this.currentStuck.tried : {};
       const out = [];
       if (this.bombs > 0) out.push({ id: 'bomb', count: this.bombs });
+      if (this.freeSwaps > 0) out.push({ id: 'freeSwap', left: this.freeSwaps });
+      if (this.freeRevives > 0) out.push({ id: 'freeRevive', left: this.freeRevives, works: this.reviveClearWorks() });
       if (this.swapsLeft() > 0 && !tried.swap) out.push({ id: 'swap', left: this.swapsLeft() });
       if (this.revivesLeft() > 0 && !tried.revive) {
         out.push({ id: 'revive', left: this.revivesLeft(), works: this.reviveClearWorks() });
@@ -644,7 +729,7 @@
 
     hasStuckRescue() {
       return this.stuckOptions().some(function (o) {
-        return o.id === 'bomb' || o.id === 'swap' || (o.id === 'revive' && o.works);
+        return o.id === 'bomb' || o.id === 'swap' || o.id === 'freeSwap' || o.works === true;
       });
     }
 
@@ -664,8 +749,10 @@
       if (!this.hasStuckRescue()) this.endGame('stuck');
     }
 
-    canRevive() {
-      return this.phase === 'stuck' && this.revivesLeft() > 0 && !(this.currentStuck && this.currentStuck.tried.revive);
+    canRevive(free) {
+      if (this.phase !== 'stuck') return false;
+      if (free) return this.freeRevives > 0;
+      return this.revivesLeft() > 0 && !(this.currentStuck && this.currentStuck.tried.revive);
     }
 
     // 清完之后是否真的能放下，界面用它决定要不要置灰
@@ -680,11 +767,17 @@
       });
     }
 
-    // 看完激励视频后调用：清除最密集的 3×3
-    revive() {
-      if (!this.canRevive() || !this.reviveClearWorks()) return false;
-      this._noteStuckChoice('revive');
-      this.revivesUsed++;
+    // 看完激励视频后调用：清除最密集的 3×3。free：用奖励的免费次数，不看广告，也不占广告次数
+    revive(free) {
+      if (!this.canRevive(free) || !this.reviveClearWorks()) return false;
+      if (free) {
+        this.freeRevives--;
+        this._noteRewardUsed('revive');
+        this._noteStuckChoice('freeRevive');
+      } else {
+        this.revivesUsed++;
+        this._noteStuckChoice('revive');
+      }
       this.revivePhase = this.currentDeal.phase;
       this.bufferLeft = this.cfg.ads.revive.bufferGroups;
       // 手里剩的大方块也换掉，否则放完一块就又卡死，下一组缓冲的牌都等不到
@@ -699,7 +792,7 @@
       return true;
     }
 
-    // reason：clear 通关 / stuck 无处可放 / abandon 主动放弃
+    // reason：stuck 无处可放 / abandon 主动放弃
     endGame(reason) {
       if (this.phase === 'over') return;
       this.phase = 'over';
@@ -744,12 +837,14 @@
         relaxedDeals: this.relaxedDeals,
         bombsGained: this.bombsGained,
         bombsUsed: this.bombsUsed,
+        rewardsGained: this.rewardsGained,
+        rewardsUsed: this.rewardsUsed,
         endReason: this.endReason,
         endType: this.endType,
         endPhase: this.currentDeal.phase,
-        revived: this.revivesUsed > 0,
+        revived: this.revivePhase !== null,
         revivePhase: this.revivePhase,
-        placementsAfterRevive: this.revivesUsed > 0 ? this.placements - this.placementsAtRevive : null,
+        placementsAfterRevive: this.revivePhase !== null ? this.placements - this.placementsAtRevive : null,
         stuckPanels: this.stuckLog.filter(function (x) { return x.panel; }).length,
         stuckChoices: this.stuckLog.map(function (x) { return x.choices.slice(); }),
         ads: this.ads,
@@ -773,9 +868,12 @@
       this._afterChange();
     }
 
+    // 下一个阶梯，过了最后一档就是下一个奖励台阶
     debugNextTier() {
-      if (!this.relicMode || this.tierIndex >= this.cfg.relic.tiers.length) return;
-      this.score = Math.max(this.score, this.cfg.relic.tiers[this.tierIndex]);
+      const tiers = this.cfg.relic.tiers;
+      if (!this.relicMode) return;
+      if (this.tierIndex < tiers.length) this.score = Math.max(this.score, tiers[this.tierIndex]);
+      else if (this.mode === 'relic') this.score = Math.max(this.score, this.rewardScoreAt(this.rewardIndex));
       this._checkTiers();
     }
 

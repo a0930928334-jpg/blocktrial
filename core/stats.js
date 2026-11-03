@@ -67,13 +67,17 @@
     return out;
   }
 
-  const CHOICE_CODES = { bomb: 'b', swap: 's', revive: 'r', giveUp: 'g', swapAbandoned: 'sx', reviveAbandoned: 'rx' };
+  const CHOICE_CODES = { bomb: 'b', swap: 's', revive: 'r', giveUp: 'g', swapAbandoned: 'sx', reviveAbandoned: 'rx', freeSwap: 'fs', freeRevive: 'fr' };
 
   // 卡死面板的选择压成短字符串，每次卡死用 | 分开，例如 "s|b,r|g"
   function compactChoices(list) {
     return (list || []).map(function (one) {
       return one.map(function (c) { return CHOICE_CODES[c] || c; }).join(',');
     }).join('|');
+  }
+
+  function rewardCounts(map) {
+    return ['bomb', 'swap', 'revive'].map(function (id) { return (map && map[id]) || 0; });
   }
 
   // 精简版的一局记录，键名含义见 README
@@ -103,6 +107,11 @@
       stage: r.stage === undefined ? null : r.stage,
       rlx: r.relaxedDeals || 0
     };
+    // 奖励 [炸弹, 换一组, 复活]，没有奖励的局不写这两个键
+    if (Object.keys(r.rewardsGained || {}).length > 0) {
+      out.rw = rewardCounts(r.rewardsGained);
+      out.rwu = rewardCounts(r.rewardsUsed);
+    }
     if (r.rushSteps !== null && r.rushSteps !== undefined) out.rush = r.rushSteps;
     // 卡死次数特别多时只保留次数，保证不超长
     if (JSON.stringify(out).length > maxChars) {

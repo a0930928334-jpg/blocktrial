@@ -59,7 +59,7 @@
       });
       y += 54;
 
-      ui.button(ctx, 'tier', x, y, half, 46, '跳到下一阶梯', {
+      ui.button(ctx, 'tier', x, y, half, 46, g.mode === 'relic' && g.tierIndex >= BG.Config.relic.tiers.length ? '跳到下一奖励' : '跳到下一阶梯', {
         size: 16, disabled: !g.relicMode,
         onTap: function () { g.debugNextTier(); BG.App.pop(); }
       });
