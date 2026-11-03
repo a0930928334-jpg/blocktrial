@@ -37,8 +37,16 @@ BG.Config = {
       '2x2': 10, '3x3': 2,
       'L3a': 7, 'L3b': 7, 'L3c': 7, 'L3d': 7,
       'L5a': 1.5, 'L5b': 1.5, 'L5c': 1.5, 'L5d': 1.5,
-      'T4a': 5, 'T4b': 5, 'T4c': 5, 'T4d': 5
+      'T4a': 5, 'T4b': 5, 'T4c': 5, 'T4d': 5,
+      'S4h': 3, 'S4v': 3, 'Z4h': 3, 'Z4v': 3
     },
+    // S/Z 形：每组最多 1 块，每日挑战不出现。权重倍率随步数上升，热身期为 0
+    sz: {
+      ids: ['S4h', 'S4v', 'Z4h', 'Z4v'],
+      curve: [[20, 0], [30, 0.5], [90, 3]],
+      maxRatio: 0.1           // 一局里占已发方块的比例上限，到了这组就不再进候选
+    },
+    oneMaxRatio: 0.15,        // 1×1 占已发方块的比例上限（小块遗物换入的不算），每日挑战不用
     // 分数越高大方块权重越高：[分数, 权重倍率]，中间线性插值
     bigCurve: [[0, 1], [1000, 1.1], [3000, 1.25], [6000, 1.4], [10000, 1.5]],
     // 每日挑战不看棋盘和分数，难放的方块按步数增多：[步数, 权重倍率]。
@@ -64,18 +72,25 @@ BG.Config = {
     moveLimit: 40,            // 合法位置数达到多少算"很宽松"
     // 难度分公式，结果限制在 0～100，越高越难。
     // m：{ moves: 每块合法位置数, fits: 能放下的块数, count: 总块数,
-    //      solvable: 能否全部放下(true/false/null未证明), maxLines: 最大消除线数, cells: 总格数 }
+    //      solvable: 能否全部放下(true/false/null未证明), maxLines: 最大消除线数,
+    //      interference: 放下一块后，另外几块平均少掉多大比例的位置（0～1） }
+    // 难度只来自组合，不看方块格数。
     difficulty: function (m) {
       const limit = BG.Config.dealer.moveLimit;
       let tight = 0;
       m.moves.forEach(function (n) { tight += 1 - Math.min(n, limit) / limit; });
       tight /= m.count;
       return 45 * tight                       // 位置越少越难
+        + 60 * m.interference                 // 放一块挤掉另外两块的位置越多越难
         + 20 * (m.count - m.fits) / m.count   // 当前放不下的块越多越难
         + (m.solvable === true ? 0 : 25)      // 没有证明能全部放下
-        - 16 * Math.min(m.maxLines, 3)        // 能消的线越多越容易
-        + 1.2 * m.cells;                      // 块越大越难
+        - 16 * Math.min(m.maxLines, 3);       // 能消的线越多越容易
     },
+    interferenceSamples: 8,   // 算互相挤占时，每块最多抽样几个位置
+    // 后期规则的起点：平常期从这一步起，以及冲刺期、考验期，发牌 3 块都要有位置
+    lateFromStep: { relic: 30, classic: 40 },
+    bigMinEmpty: 30,          // 后期棋盘空格数不少于这个值，才发 5 格及以上的大方块
+    smallRetryCells: 3,       // 后期候选全不合格时，再用多大以内的小方块试一轮，仍不行才放宽
     warmupSteps: 20,          // 热身期：每局前多少步
     warmupRatio: 0.25,        // 热身期：从最容易的多少比例里选
     // 平常期：从候选的难度排序里，以 center 为中心、前后各 halfWidth 的一段随机选。
@@ -117,19 +132,27 @@ BG.Config = {
     bigClearMult: 2,       // 大消除：本次得分倍率
     comboBonusMult: 2,     // 连击：连击加成的倍数
     chainBonus: 30,        // 连消：连续两步都有消除时的额外得分
-    smallEvery: 3,         // 小块：每发多少组牌送 1 个 1×1
+    smallEvery: 3,         // 小块：每发多少组牌，有一组的一块换成 1×1（托盘始终 3 块）
     bombEvery: 5,          // 炸弹：每多少次"有消除的放置"得 1 颗
     bombMax: 2,            // 炸弹：最多同时持有几颗，持有满时进度暂停
     bombRadius: 1          // 炸弹：清除半径，1 表示 3×3
+  },
+
+  // ---------- 分数台阶和阶段 ----------
+  milestone: {
+    scoreStep: 500        // 每多少分一个台阶：庆祝，经典和每日挑战同时切换阶段主题
+  },
+
+  // ---------- 局外段位，按所有模式的个人最高分 ----------
+  rank: {
+    tiers: [[500, '新手'], [1000, '熟练'], [2000, '高手'], [3000, '大师'], [5000, '传说']]
   },
 
   // ---------- 广告（试玩版为模拟） ----------
   ads: {
     countdownSec: 3,        // 模拟广告倒计时（秒）
     reviveLimit: 1,         // 每局复活次数
-    swapTrayLimit: 2,       // 每局"换一组方块"次数
-    offerRefreshLimit: 1,   // 每次三选一可刷新次数
-    offerRefreshPerGame: 2, // 每局遗物刷新合计次数
+    swapTrayLimit: 1,       // 每局"换一组方块"次数。一局的激励广告只有复活和换一组，最多 2 次
     interstitialEnabled: false, // 插屏总开关，试玩版关闭
     interstitialEvery: 2,   // 打开插屏时，每结束几局回到菜单时播一次
     revive: {
@@ -170,6 +193,26 @@ BG.Config = {
       floatMerge: 350,    // 飘字出现后这么久内再加分，就合并成一个数字
       floatRise: 12       // 飘字上移多少逻辑像素
     },
+    stageFade: 600,       // 阶段主题切换的过渡时长
+    // 分数台阶和升段的庆祝
+    celebrate: {
+      lifeMs: 1500,       // 总时长，之后自然消失
+      maxLevel: 6,        // 档位上限，分数台阶的档位 = 分数 / scoreStep
+      recordLevel: 5,     // "新纪录"至少按这一档的华丽程度播放
+      topCount: 16, topPerLevel: 5,   // 顶部彩带数量
+      sideCount: 12, sidePerLevel: 5, // 两侧彩带数量
+      burstGap: 260,      // 档位越高喷发次数越多，每次间隔
+      maxParticles: 160,
+      gravity: 170,
+      drag: 1.6,          // 空气阻力，越大彩带飞得越近
+      boardAlpha: 0.2,    // 彩带叠在棋盘上时的最大透明度
+      boardFade: 3,       // 彩带在棋盘范围内消失得快几倍
+      colors: ['#ffc23c', '#2fc4b2', '#ff6b5e', '#f368b4', '#3fa9f5', '#a77bf3', '#ffffff', '#ffe08a', '#7ce8b3'],
+      bannerSize: 30, bannerPerLevel: 1.5, // 横幅字号
+      bannerPeak: 1.25,   // 回弹时最大放大到多少
+      score: { scale: 1.6, scalePerLevel: 0.06, maxScale: 2, ms: 620, color: '#ffc23c', strength: 1, colorMs: 1100, shake: 5, shakeMs: 320 },
+      vibrateMs: 40, vibratePerLevel: 12
+    },
     // "距下一个遗物"进度条，接近下一档时轻微脉动
     progressPulse: {
       remainRatio: 0.15,  // 剩余不到这一档的这个比例时开始
@@ -191,7 +234,10 @@ BG.Config = {
     minTouch: 44,         // 最小触控区（逻辑像素）
     maxColumn: 520,       // 电脑宽屏下游戏列的最大宽度
     relicTipMs: 2500,     // 点击遗物图标后，说明显示多久
-    exitHintMs: 2000      // 菜单按返回键后，多久内再按一次才退出
+    exitHintMs: 2000,     // 菜单按返回键后，多久内再按一次才退出
+    updateCheckMs: 60000, // 停在主菜单时，隔多久问一次服务器有没有新版本
+    maxDpr: 4,            // 画布像素密度上限，iPhone 是 3，不能低于 3
+    maxCanvasPixels: 16000000 // 单张画布的像素上限，iOS Safari 超过约 1677 万像素就画不出来
   },
 
   // ---------- 统计 ----------

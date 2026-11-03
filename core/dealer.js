@@ -173,6 +173,33 @@
     return best;
   }
 
+  // ---------- 互相挤占 ----------
+
+  // 放下一块后，另外几块平均少掉多大比例的位置。每块抽样几个位置，算上消线腾出的空间。
+  function interference(rows, shapes, moves, n, samples) {
+    const next = stackAt(0, n);
+    let sum = 0;
+    let pairs = 0;
+    for (let i = 0; i < shapes.length; i++) {
+      if (moves[i] === 0) continue;
+      const stride = Math.max(1, Math.floor(moves[i] / samples));
+      let seen = 0;
+      for (let r = 0; r <= n - shapes[i].h; r++) {
+        for (let c = 0; c <= n - shapes[i].w; c++) {
+          if (!fits(rows, shapes[i], r, c)) continue;
+          if (seen++ % stride !== 0) continue;
+          applyMove(rows, next, shapes[i], r, c, n);
+          for (let j = 0; j < shapes.length; j++) {
+            if (j === i || moves[j] === 0) continue;
+            sum += Math.max(0, 1 - countMoves(next, shapes[j], n) / moves[j]);
+            pairs++;
+          }
+        }
+      }
+    }
+    return pairs ? sum / pairs : 0;
+  }
+
   // ---------- 评估一组牌 ----------
 
   // budget：{ left } 这次发牌还剩多少节点，每组候选从中扣除
@@ -208,7 +235,8 @@
       count: shapes.length,
       solvable: solvable,
       maxLines: maxLines,
-      cells: cells
+      cells: cells,
+      interference: interference(rows, shapes, moves, n, d.interferenceSamples)
     };
     metrics.difficulty = Math.max(0, Math.min(100, Math.round(d.difficulty(metrics))));
     return metrics;
@@ -238,9 +266,23 @@
     return BG.Generator.interpolate(normalCurve(mode, cfg).bigMult, placements);
   }
 
+  // 后期规则是否适用：平常期后段、冲刺期、考验期
+  function isLate(phase, placements, cfg, mode) {
+    if (phase === 'sprint' || phase === 'trial') return true;
+    return phase === 'normal' && placements >= cfg.dealer.lateFromStep[mode];
+  }
+
+  function fullFit(x) {
+    return x.metrics.solvable === true && x.metrics.fits === x.metrics.count;
+  }
+
   // candidates：[{ pieces, metrics }]。返回选中的候选，没有合适的返回 null。
+  // 后期规则下优先从 3 块都有位置的候选里选，一个都没有时才退到原来的范围。
   function select(phase, candidates, rng, cfg, placements, mode) {
     const d = cfg.dealer;
+    if (isLate(phase, placements, cfg, mode) && candidates.some(fullFit)) {
+      candidates = candidates.filter(fullFit);
+    }
     const byDifficulty = function (list) {
       return list.slice().sort(function (a, b) { return a.metrics.difficulty - b.metrics.difficulty; });
     };
@@ -367,6 +409,9 @@
     }
   }
 
-  BG.Dealer = { evaluate: evaluate, select: select, normalBand: normalBand, normalBigMult: normalBigMult, boardRows: boardRows };
+  BG.Dealer = {
+    evaluate: evaluate, select: select, isLate: isLate, fullFit: fullFit,
+    normalBand: normalBand, normalBigMult: normalBigMult, boardRows: boardRows
+  };
   BG.DealDirector = DealDirector;
 })();

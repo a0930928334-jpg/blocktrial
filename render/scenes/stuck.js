@@ -87,7 +87,7 @@
             onTap: function () { self._swap(); }
           });
         } else if (o.id === 'revive') {
-          const sub = o.works ? '看广告，清除最密集的 3×3' : '清完也放不下，此项不可用';
+          const sub = o.works ? '看广告清 3×3，还剩 ' + o.left + ' 次' : '清完也放不下，此项不可用';
           self._adButton(ctx, 'revive', x, y, w, '复活', sub, {
             style: 'primary', disabled: !o.works,
             onTap: function () { self._revive(); }

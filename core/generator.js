@@ -22,7 +22,8 @@
       this.cfg = cfg;
     }
 
-    // ctx: { score, groupIndex, has(id), bigMult? }，返回 { 形状id: 权重 }
+    // ctx: { score, groupIndex, has(id), bigMult?, placements, szAllowed, oneAllowed, board?, bigAllowed? }
+    // board 只在后期规则下传入：放不下的形状权重为 0。返回 { 形状id: 权重 }
     weights(ctx) {
       const g = this.cfg.generator;
       const out = {};
@@ -30,15 +31,20 @@
         const step = ctx.groupIndex * this.cfg.board.traySize;
         const hard = interpolate(g.dailyHardCurve, step);
         BG.Shapes.list.forEach(function (shape) {
-          const w = g.shapeWeights[shape.id] || 0;
+          const w = g.sz.ids.indexOf(shape.id) !== -1 ? 0 : (g.shapeWeights[shape.id] || 0);
           out[shape.id] = g.dailyHardShapes.indexOf(shape.id) !== -1 ? w * hard : w;
         });
         return out;
       }
       const boost = interpolate(g.bigCurve, ctx.score) * (ctx.bigMult || 1);
+      const sz = ctx.szAllowed === false ? 0 : interpolate(g.sz.curve, ctx.placements || 0);
       BG.Shapes.list.forEach(function (shape) {
-        const w = g.shapeWeights[shape.id] || 0;
-        out[shape.id] = shape.count >= g.bigCells ? w * boost : w;
+        let w = g.shapeWeights[shape.id] || 0;
+        if (shape.count >= g.bigCells) w = ctx.bigAllowed === false ? 0 : w * boost;
+        if (g.sz.ids.indexOf(shape.id) !== -1) w *= sz;
+        if (shape.id === '1x1' && ctx.oneAllowed === false) w = 0;
+        if (ctx.board && !ctx.board.hasPlacement(shape)) w = 0;
+        out[shape.id] = w;
       });
       return out;
     }
@@ -59,10 +65,19 @@
       return { shape: shape, color: rng.int(this.cfg.board.colorCount) };
     }
 
-    // 按权重随机一组
+    // 按权重随机一组，每组最多 1 块 S/Z
     rollGroup(rng, weights, count) {
+      const szIds = this.cfg.generator.sz.ids;
       const pieces = [];
-      for (let i = 0; i < count; i++) pieces.push(this._piece(rng, this._pick(rng, weights)));
+      let w = weights;
+      for (let i = 0; i < count; i++) {
+        const shape = this._pick(rng, w);
+        pieces.push(this._piece(rng, shape));
+        if (szIds.indexOf(shape.id) !== -1) {
+          w = Object.assign({}, w);
+          szIds.forEach(function (id) { w[id] = 0; });
+        }
+      }
       return pieces;
     }
 
@@ -85,7 +100,7 @@
       return best;
     }
 
-    // 小块遗物送的 1×1
+    // 小块遗物换入的 1×1
     giftPiece(index) {
       const rng = new BG.RNG(BG.RNG.derive(this.seed, 'gift', index));
       return Object.assign(this._piece(rng, BG.Shapes.byId['1x1']), { gift: true });
@@ -133,19 +148,17 @@
       }
     }
 
-    // 三选一候选：每个阶梯一张固定排序表，取未拥有的，刷新时顺延到后面几个。
+    // 三选一候选：每个阶梯一张固定排序表，取未拥有的。
     // 两种类型都还有剩余时，必须同时包含加分型和道具型。
-    offer(tierIndex, refreshNo, owned, pool) {
+    offer(tierIndex, owned, pool) {
       const rng = new BG.RNG(BG.RNG.derive(this.seed, 'offer', tierIndex));
       const avail = rng.shuffle(pool).filter(function (id) { return owned.indexOf(id) === -1; });
       const n = Math.min(this.cfg.relic.choices, avail.length);
       if (n === 0) return [];
-      const start = (refreshNo * n) % avail.length;
-      const rotated = avail.slice(start).concat(avail.slice(0, start));
-      const out = rotated.slice(0, n);
+      const out = avail.slice(0, n);
       const typeOf = function (id) { return BG.Relics.byId[id].type; };
       if (n >= 2 && out.every(function (id) { return typeOf(id) === typeOf(out[0]); })) {
-        const other = rotated.find(function (id) { return typeOf(id) !== typeOf(out[0]); });
+        const other = avail.find(function (id) { return typeOf(id) !== typeOf(out[0]); });
         if (other) out[n - 1] = other;
       }
       return out;

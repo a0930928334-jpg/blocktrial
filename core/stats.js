@@ -25,6 +25,15 @@
     return [record].concat(records).slice(0, keep);
   }
 
+  function filterByVersion(records, version) {
+    return records.filter(function (r) { return r.version === version; });
+  }
+
+  // 只删除非当前版本的记录，没有版本号的旧记录也算
+  function removeOldVersions(records, version) {
+    return filterByVersion(records, version);
+  }
+
   function summarize(records) {
     const n = records.length;
     const avg = function (key) {
@@ -88,7 +97,10 @@
       rev: r.revived ? 1 : 0,
       stuck: compactChoices(r.stuckChoices),
       ads: [sumMap(ads.triggered), sumMap(ads.completed), sumMap(ads.abandoned)],
-      deal: summarizeDeals(r.deals)
+      deal: summarizeDeals(r.deals),
+      ms: r.milestones || [],
+      stage: r.stage === undefined ? null : r.stage,
+      rlx: r.relaxedDeals || 0
     };
     if (r.rushSteps !== null && r.rushSteps !== undefined) out.rush = r.rushSteps;
     // 卡死次数特别多时只保留次数，保证不超长
@@ -119,6 +131,8 @@
     noteAd: noteAd,
     sumMap: sumMap,
     addRecord: addRecord,
-    summarize: summarize
+    summarize: summarize,
+    filterByVersion: filterByVersion,
+    removeOldVersions: removeOldVersions
   };
 })();

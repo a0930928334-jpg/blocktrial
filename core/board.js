@@ -23,6 +23,14 @@
       this.cells[r * this.size + c] = v;
     }
 
+    emptyCount() {
+      let count = 0;
+      for (let i = 0; i < this.cells.length; i++) {
+        if (this.cells[i] === -1) count++;
+      }
+      return count;
+    }
+
     canPlace(shape, r, c) {
       if (r < 0 || c < 0 || r + shape.h > this.size || c + shape.w > this.size) return false;
       for (let i = 0; i < shape.cells.length; i++) {

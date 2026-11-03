@@ -195,13 +195,10 @@
         const scale = k < 0.2 ? lerp(1.9, 1, easeOut(k / 0.2)) : 1;
         ctx.save();
         ctx.globalAlpha = k < 0.55 ? 1 : 1 - (k - 0.55) / 0.45;
-        ctx.translate(s.x, s.y);
-        BG.Draw.fillRound(ctx, -70, -44, 140, 86, 14, 'rgba(11, 14, 19, 0.82)');
-        ctx.save();
-        ctx.scale(scale, scale);
-        BG.Draw.text(ctx, s.text, 0, -10, { size: cfg.stampSize, bold: true, color: BG.Theme.gold, align: 'center' });
-        ctx.restore();
-        BG.Draw.text(ctx, s.name, 0, 26, { size: 18, bold: true, align: 'center' });
+        BG.Draw.fillRound(ctx, s.x - 70, s.y - 44, 140, 86, 14, 'rgba(11, 14, 19, 0.82)');
+        // 字号直接按放大后的尺寸算，文字始终清晰
+        BG.Draw.text(ctx, s.text, s.x, s.y - 10 * scale, { size: cfg.stampSize * scale, bold: true, color: BG.Theme.gold, align: 'center' });
+        BG.Draw.text(ctx, s.name, s.x, s.y + 26, { size: 18, bold: true, align: 'center' });
         ctx.restore();
       });
     }
@@ -220,9 +217,7 @@
         const scale = k < 0.18 ? lerp(0.7, 1.15, k / 0.18) : (k < 0.32 ? lerp(1.15, 1, (k - 0.18) / 0.14) : 1);
         ctx.save();
         ctx.globalAlpha = k < 0.7 ? 1 : 1 - (k - 0.7) / 0.3;
-        ctx.translate(screen.width / 2, screen.height * 0.42);
-        ctx.scale(scale, scale);
-        BG.Draw.text(ctx, '连击 ×' + this.comboFx.n, 0, 0, { size: 38, bold: true, color: BG.Theme.gold, align: 'center' });
+        BG.Draw.text(ctx, '连击 ×' + this.comboFx.n, screen.width / 2, screen.height * 0.42, { size: 38 * scale, bold: true, color: BG.Theme.gold, align: 'center' });
         ctx.restore();
       }
     }

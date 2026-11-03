@@ -8,11 +8,21 @@
   const REASONS = { clear: '通关！', stuck: '无处可放', abandon: '已放弃' };
 
   class ResultScene {
-    // info: { isRecord, best }
+    // info: { isRecord, best, rank, rankUp }
     constructor(game, info) {
       this.game = game;
       this.info = info;
       this.ui = new BG.UI();
+      this.celebrate = new BG.Celebration(BG.Config.anim.celebrate);
+      if (info.rankUp) {
+        const s = BG.Screen;
+        this.celebrate.fire({ text: '升段：' + info.rank.name + '！', level: info.rank.index + 2, record: true, width: s.width, height: s.height, top: s.safe.top });
+        BG.Audio.play('record');
+      }
+    }
+
+    update(dt) {
+      this.celebrate.update(dt);
     }
 
     draw(ctx, screen) {
@@ -26,9 +36,10 @@
       const tiers = BG.Config.relic.tiers.length;
 
       const relicRows = g.relicMode ? Math.ceil(g.relics.length / 2) : 0;
-      const contentH = 40 + 60 + 34 + 34 * (g.relicMode ? 2 : 1) + (g.relicMode ? 34 + relicRows * 44 : 0) + 20 + 56 * 2 + 12;
+      const contentH = 40 + 60 + 34 + 30 + 34 * (g.relicMode ? 2 : 1) + (g.relicMode ? 34 + relicRows * 44 : 0) + 20 + 76 + 10 + 44;
       const usable = screen.height - safe.top - safe.bottom;
       let y = safe.top + Math.max(10, (usable - contentH) / 2);
+      this.celebrate.drawBehind(ctx);
 
       const rushed = g.rushStartStep !== null;
       D.text(ctx, rushed ? '通关，冲分结束' : (REASONS[g.endReason] || '本局结束'), cx, y + 18, {
@@ -42,6 +53,8 @@
       } else {
         D.text(ctx, '最高分 ' + this.info.best, cx, y + 15, { size: 16, color: T.textDim, align: 'center' });
       }
+      y += 30;
+      D.text(ctx, BG.Rank.text(this.info.rank), cx, y + 12, { size: 16, bold: this.info.rankUp, color: T.gold, align: 'center' });
       y += 34;
 
       const row = function (label, value) {
@@ -65,14 +78,20 @@
       }
       y += 16;
 
-      ui.button(ctx, 'again', x, y, w, 56, '再来一局', {
-        style: 'primary', size: 20,
+      // 最大的按钮：立即同模式新开一局，不经过主菜单，不播广告
+      ui.button(ctx, 'again', x, y, w, 76, '再来一局', {
+        style: 'primary', size: 26,
         onTap: function () { BG.App.startGame(g.mode); }
       });
-      y += 66;
-      ui.button(ctx, 'menu', x, y, w, 52, '返回菜单', {
+      y += 86;
+      ui.button(ctx, 'menu', x, y, w, 44, '返回菜单', {
+        size: 16, bold: false,
         onTap: function () { BG.App.toMenu(); }
       });
+
+      if (this.celebrate.banner) {
+        this.celebrate.drawBanner(ctx, { x: x, y: safe.top + 4, w: w, h: 56 });
+      }
     }
 
     back() {

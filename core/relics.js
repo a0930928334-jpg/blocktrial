@@ -45,7 +45,7 @@
       // 会改变发牌，每日挑战的序列要对所有人相同，所以不进每日候选池
       id: 'smallPiece', type: 'item', name: '小块', dailyExcluded: true,
       short: function () { return '每' + rc().smallEvery + '组送小方块'; },
-      trigger: function () { return '小块 +1'; }
+      trigger: function () { return '小块 1×1'; }
     }
   ];
 

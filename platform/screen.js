@@ -31,21 +31,39 @@
   }
 
   // 优先用 visualViewport：它给的是真实宽高（安卓常见 392.7 这样的小数），
-  // innerWidth 会取整。页面被缩放时退回 innerWidth。
+  // innerWidth 会取整。页面被缩放时 visualViewport 和 iOS 的 innerWidth 都只剩可见部分，
+  // 要用布局视口的大小，它不随缩放变化。
   function viewportSize() {
     const vv = window.visualViewport;
     if (vv && Math.abs(vv.scale - 1) < 0.01) return { w: vv.width, h: vv.height };
-    return { w: window.innerWidth, h: window.innerHeight };
+    const root = document.documentElement;
+    return { w: root.clientWidth || window.innerWidth, h: root.clientHeight || window.innerHeight };
+  }
+
+  // 页面被意外放大时，浏览器会把画布再放大一次，字就糊了。
+  // 所以画布像素要跟着乘上缩放倍数，同时不超过上限。
+  function targetDpr(size) {
+    const ui = BG.Config.ui;
+    const vv = window.visualViewport;
+    const zoom = vv && vv.scale > 1.01 ? vv.scale : 1;
+    let dpr = Math.min((window.devicePixelRatio || 1) * zoom, ui.maxDpr);
+    const pixels = size.w * size.h * dpr * dpr;
+    if (pixels > ui.maxCanvasPixels) dpr *= Math.sqrt(ui.maxCanvasPixels / pixels);
+    return dpr;
+  }
+
+  function changed(size, dpr) {
+    return Math.round(size.w * dpr) !== canvas.width || Math.round(size.h * dpr) !== canvas.height || dpr !== Screen.dpr;
   }
 
   function resize() {
-    const dpr = window.devicePixelRatio || 1;
     const size = viewportSize();
+    const dpr = targetDpr(size);
     const pixelW = Math.round(size.w * dpr);
     const pixelH = Math.round(size.h * dpr);
     readSafeArea();
     // 尺寸没变时不重设画布：重设会清空内容，visualViewport 事件又很频繁
-    if (pixelW !== canvas.width || pixelH !== canvas.height || dpr !== Screen.dpr) {
+    if (changed(size, dpr)) {
       // 物理像素必须是整数，所以 CSS 尺寸由它反推，
       // 保证 canvas 像素 = CSS 尺寸 × dpr，浏览器不会再做一次缩放
       Screen.dpr = dpr;
@@ -97,6 +115,33 @@
     if (window.visualViewport) window.visualViewport.addEventListener('resize', resize);
     watchDpr();
     resize();
+  };
+
+  // 每帧检查一次：iOS 有时不发事件（切后台回来、地址栏收起、意外缩放），画布就和屏幕对不上了
+  Screen.sync = function () {
+    const size = viewportSize();
+    if (changed(size, targetDpr(size))) resize();
+  };
+
+  // 调试面板用：确认画布没有被放大显示
+  Screen.info = function () {
+    const vv = window.visualViewport;
+    const canvases = document.getElementsByTagName('canvas');
+    let pixels = 0;
+    for (let i = 0; i < canvases.length; i++) pixels += canvases[i].width * canvases[i].height;
+    return {
+      dpr: Screen.dpr,
+      rawDpr: window.devicePixelRatio || 1,
+      pixelW: canvas.width,
+      pixelH: canvas.height,
+      cssW: Screen.width,
+      cssH: Screen.height,
+      vvScale: vv ? vv.scale : null,
+      canvases: canvases.length,
+      pixels: pixels,
+      // Safari 的"aA 页面缩放"不改 dpr，也不改 vv.scale，只能这样估计。约等于 1 才正常
+      pageZoom: window.screen && window.innerWidth ? window.screen.width / window.innerWidth : null
+    };
   };
 
   Screen.canvas = function () { return canvas; };

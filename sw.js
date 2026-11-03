@@ -1,6 +1,6 @@
 // 离线缓存。VERSION 和 FILES 由 tools/bump-version.js 更新，不要手改。
-// 版本号一变，这个文件内容就变，浏览器会安装新版本并删除旧缓存。
-const VERSION = '0.1.6';
+// 版本号一变，这个文件内容就变，浏览器会在后台安装新版本，然后等玩家在主菜单点"更新"才接管。
+const VERSION = '0.1.8';
 const FILES = [
   './',
   'index.html',
@@ -9,44 +9,50 @@ const FILES = [
   'icons/icon-192.png',
   'icons/icon-512.png',
   'icons/maskable-512.png',
-  'config.js?v=0.1.6',
-  'version.js?v=0.1.6',
-  'core/rng.js?v=0.1.6',
-  'core/shapes.js?v=0.1.6',
-  'core/board.js?v=0.1.6',
-  'core/scoring.js?v=0.1.6',
-  'core/relics.js?v=0.1.6',
-  'core/generator.js?v=0.1.6',
-  'core/dealer.js?v=0.1.6',
-  'core/stats.js?v=0.1.6',
-  'core/game.js?v=0.1.6',
-  'platform/screen.js?v=0.1.6',
-  'platform/storage.js?v=0.1.6',
-  'platform/audio.js?v=0.1.6',
-  'platform/vibrate.js?v=0.1.6',
-  'platform/clipboard.js?v=0.1.6',
-  'platform/ads.js?v=0.1.6',
-  'platform/backbutton.js?v=0.1.6',
-  'platform/pwa.js?v=0.1.6',
-  'input/pointer.js?v=0.1.6',
-  'render/theme.js?v=0.1.6',
-  'render/layout.js?v=0.1.6',
-  'render/anim.js?v=0.1.6',
-  'render/scorefx.js?v=0.1.6',
-  'render/draw.js?v=0.1.6',
-  'render/ui.js?v=0.1.6',
-  'render/scenes/menu.js?v=0.1.6',
-  'render/scenes/play.js?v=0.1.6',
-  'render/scenes/relicPick.js?v=0.1.6',
-  'render/scenes/stuck.js?v=0.1.6',
-  'render/scenes/pause.js?v=0.1.6',
-  'render/scenes/result.js?v=0.1.6',
-  'render/scenes/stats.js?v=0.1.6',
-  'render/scenes/settings.js?v=0.1.6',
-  'render/scenes/debug.js?v=0.1.6',
-  'main.js?v=0.1.6'
+  'config.js?v=0.1.8',
+  'version.js?v=0.1.8',
+  'core/rng.js?v=0.1.8',
+  'core/shapes.js?v=0.1.8',
+  'core/board.js?v=0.1.8',
+  'core/scoring.js?v=0.1.8',
+  'core/relics.js?v=0.1.8',
+  'core/generator.js?v=0.1.8',
+  'core/dealer.js?v=0.1.8',
+  'core/stats.js?v=0.1.8',
+  'core/rank.js?v=0.1.8',
+  'core/game.js?v=0.1.8',
+  'platform/screen.js?v=0.1.8',
+  'platform/storage.js?v=0.1.8',
+  'platform/audio.js?v=0.1.8',
+  'platform/vibrate.js?v=0.1.8',
+  'platform/clipboard.js?v=0.1.8',
+  'platform/ads.js?v=0.1.8',
+  'platform/leaderboard.js?v=0.1.8',
+  'platform/backbutton.js?v=0.1.8',
+  'platform/pwa.js?v=0.1.8',
+  'input/pointer.js?v=0.1.8',
+  'render/theme.js?v=0.1.8',
+  'render/layout.js?v=0.1.8',
+  'render/anim.js?v=0.1.8',
+  'render/scorefx.js?v=0.1.8',
+  'render/stages.js?v=0.1.8',
+  'render/celebrate.js?v=0.1.8',
+  'render/draw.js?v=0.1.8',
+  'render/ui.js?v=0.1.8',
+  'render/scenes/menu.js?v=0.1.8',
+  'render/scenes/play.js?v=0.1.8',
+  'render/scenes/relicPick.js?v=0.1.8',
+  'render/scenes/stuck.js?v=0.1.8',
+  'render/scenes/pause.js?v=0.1.8',
+  'render/scenes/result.js?v=0.1.8',
+  'render/scenes/stats.js?v=0.1.8',
+  'render/scenes/settings.js?v=0.1.8',
+  'render/scenes/debug.js?v=0.1.8',
+  'main.js?v=0.1.8'
 ];
-const CACHE = 'blocktrial-' + VERSION;
+// v0.1.6 及以前的缓存名是 blocktrial-版本号，那些页面只会等新版本自动接管，不会发消息
+const CACHE = 'blocktrial-v2-' + VERSION;
+const OLD_PROTOCOL = /^blocktrial-\d/;
 
 self.addEventListener('install', function (event) {
   event.waitUntil(
@@ -54,9 +60,19 @@ self.addEventListener('install', function (event) {
       // 绕过 HTTP 缓存，确保存进去的是这个版本的文件
       return cache.addAll(FILES.map(function (url) { return new Request(url, { cache: 'reload' }); }));
     }).then(function () {
-      return self.skipWaiting();
+      return caches.keys();
+    }).then(function (keys) {
+      // 从老版本升级时直接接管，否则已经开着的老页面永远等不到更新
+      if (keys.some(function (key) { return OLD_PROTOCOL.test(key); })) return self.skipWaiting();
+      return undefined;
     })
   );
+});
+
+self.addEventListener('message', function (event) {
+  const data = event.data || {};
+  if (data.type === 'version' && event.ports[0]) event.ports[0].postMessage(VERSION);
+  if (data.type === 'skipWaiting') self.skipWaiting();
 });
 
 self.addEventListener('activate', function (event) {

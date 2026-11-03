@@ -41,8 +41,12 @@
 
       D.text(ctx, '种子 ' + g.seed + '　模式 ' + g.mode, x, y + 12, { size: 16, color: T.textDim });
       y += 26;
-      const canvas = BG.Screen.canvas();
-      D.text(ctx, 'dpr ' + BG.Screen.dpr + '　画布 ' + canvas.width + '×' + canvas.height, x, y + 12, { size: 16, color: T.textDim });
+      const si = BG.Screen.info();
+      D.text(ctx, 'dpr ' + si.dpr.toFixed(2) + '（系统 ' + si.rawDpr + '）　画布 ' + si.pixelW + '×' + si.pixelH, x, y + 12, { size: 16, color: T.textDim });
+      y += 26;
+      D.text(ctx, 'CSS ' + si.cssW.toFixed(1) + '×' + si.cssH.toFixed(1) + '　vv.scale ' + (si.vvScale === null ? '无' : si.vvScale.toFixed(3)), x, y + 12, { size: 16, color: T.textDim });
+      y += 26;
+      D.text(ctx, '画布 ' + si.canvases + ' 张，共 ' + (si.pixels / 1000000).toFixed(2) + ' 百万像素　页面缩放 ' + (si.pageZoom === null ? '无' : si.pageZoom.toFixed(2)), x, y + 12, { size: 16, color: T.textDim });
       y += 26;
       const deal = g.currentDeal;
       D.text(ctx, '阶段 ' + (PHASES[deal.phase] || deal.phase) + '　本组难度 ' + deal.difficulty + '　能放 ' + deal.fits + ' 块', x, y + 12, { size: 16 });

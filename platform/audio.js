@@ -52,6 +52,20 @@
       tone(base, 0, 0.09, { type: 'square', volume: 0.07 });
       tone(base * 1.5, 0.07, 0.16, { type: 'triangle', volume: 0.2 });
     },
+    // 分数台阶，档位越高音越多越高
+    milestone: function (level) {
+      const notes = [659, 784, 988, 1175, 1319, 1568];
+      const n = Math.min(notes.length, 2 + (level || 1));
+      for (let i = 0; i < n; i++) {
+        tone(notes[i], i * 0.07, 0.22, { type: 'triangle', volume: 0.18 });
+      }
+    },
+    record: function () {
+      [523, 659, 784, 1047, 1319, 1568].forEach(function (f, i) {
+        tone(f, i * 0.08, 0.32, { type: 'triangle', volume: 0.18 });
+        tone(f * 2, i * 0.08 + 0.02, 0.16, { type: 'sine', volume: 0.06 });
+      });
+    },
     bomb: function () { tone(160, 0, 0.28, { type: 'sawtooth', toFreq: 50, volume: 0.22 }); },
     fail: function () {
       [392, 330, 262].forEach(function (f, i) {

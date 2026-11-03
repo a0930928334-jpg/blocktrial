@@ -29,6 +29,7 @@
       this.tint = null;
       this.shakeLeft = 0;
       this.shakeAmp = 0;
+      this.shakeTotal = cfg.big.shakeMs;
       this.float = null;
     }
 
@@ -46,9 +47,20 @@
       this._startTint(tier);
       if (tier.shake && this.shakeLeft <= 0) {
         this.shakeLeft = tier.shakeMs;
+        this.shakeTotal = tier.shakeMs;
         this.shakeAmp = tier.shake;
       }
       this._addFloat(amount, tier);
+    }
+
+    // 分数台阶：比普通加分更大幅的跳动和变色，level 越高越大
+    boost(cfg, level) {
+      const scale = Math.min(cfg.maxScale, cfg.scale + cfg.scalePerLevel * level);
+      this._startPulse({ scale: scale, ms: cfg.ms });
+      this.tint = { color: cfg.color, strength: cfg.strength, t: 0, ms: cfg.colorMs };
+      this.shakeLeft = cfg.shakeMs;
+      this.shakeTotal = cfg.shakeMs;
+      this.shakeAmp = cfg.shake;
     }
 
     _startRoll(target) {
@@ -140,7 +152,7 @@
     }
 
     shakeOffset() {
-      return this.shakeLeft > 0 ? this.shakeX(this.cfg.big.shakeMs) : 0;
+      return this.shakeLeft > 0 ? this.shakeX(this.shakeTotal) : 0;
     }
   }
 

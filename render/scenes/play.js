@@ -19,6 +19,8 @@
       this.holdRect = null;
       this.L = null;
       this.fx = new BG.ScoreFx(BG.Config.anim.scoreJump);
+      this.celebrate = new BG.Celebration(BG.Config.anim.celebrate);
+      this.stage = new BG.StageView(this.game.stageNumber(), BG.Config.anim.stageFade);
       this.resize(BG.Screen);
     }
 
@@ -35,10 +37,18 @@
 
     // ---------- 更新 ----------
 
+    // 庆祝、分数跳动和阶段过渡不等弹窗：三选一盖在上面时也接着走完。主循环在本场景不在最上层时单独调用
+    updateFx(dt) {
+      this.fx.update(dt);
+      this.celebrate.update(dt, this.L.board);
+      this.stage.set(this.game.stageNumber());
+      this.stage.update(dt);
+    }
+
     update(dt) {
       this.game.tick(dt);
       this.anim.update(dt);
-      this.fx.update(dt);
+      this.updateFx(dt);
       if (this.tip) {
         this.tip.left -= dt;
         if (this.tip.left <= 0) this.tip = null;
@@ -100,6 +110,9 @@
           case 'scored':
             self.fx.gain(e.total, self.game.score, e.detail.triggers.length > 0);
             break;
+          case 'milestone':
+            self._onMilestone(e);
+            break;
           case 'relicGained':
             BG.Audio.play('relic');
             break;
@@ -122,6 +135,20 @@
           self._later(wait, function () { self._onGameOver(); });
         }
       });
+    }
+
+    _onMilestone(e) {
+      const c = BG.Config.anim.celebrate;
+      const record = e.kind === 'record';
+      const level = Math.min(e.level, c.maxLevel);
+      this.celebrate.fire({
+        text: record ? '新纪录！' : e.score + '！',
+        level: level, record: record,
+        width: BG.Screen.width, height: BG.Screen.height, top: BG.Screen.safe.top
+      });
+      this.fx.boost(c.score, record ? c.maxLevel : level);
+      BG.Audio.play(record ? 'record' : 'milestone', level);
+      BG.Vibrate.short(c.vibrateMs + c.vibratePerLevel * (record ? c.maxLevel : level));
     }
 
     _floatScore(e) {
@@ -197,6 +224,8 @@
     draw(ctx, screen) {
       const ui = this.ui;
       ui.begin();
+      this.stage.drawBackground(ctx, screen);
+      this.celebrate.drawBehind(ctx);
       this._drawHeader(ctx);
       if (this.game.relicMode) this._drawRelicBar(ctx);
 
@@ -205,9 +234,11 @@
       ctx.translate(BG.Layout.snap(off.x), BG.Layout.snap(off.y));
       this._drawBoard(ctx);
       ctx.restore();
+      this.celebrate.drawOverBoard(ctx, this.L.board);
 
       this._drawTray(ctx);
       this._drawTools(ctx);
+      this.celebrate.drawBanner(ctx, this.L.header, this.stage.color('glow'));
       this._drawBanners(ctx);
       this._drawRelicTip(ctx);
       this.anim.drawParticles(ctx);
@@ -221,6 +252,7 @@
       const h = this.L.header;
       const g = this.game;
       D.text(ctx, '分数', h.x + 4, h.y + 14, { size: 16, color: T.textDim });
+      D.text(ctx, '阶段 ' + g.stageNumber(), h.x + 44, h.y + 14, { size: 16, bold: true, color: this.stage.color('glow') });
       this._drawScoreNumber(ctx, h);
       const best = Math.max(this.best, g.score);
       D.text(ctx, '最高分', h.x + h.w - 4, h.y + 14, { size: 16, color: T.textDim, align: 'right' });
@@ -244,19 +276,16 @@
     _drawScoreNumber(ctx, h) {
       const fx = this.fx;
       const text = String(fx.display(this.game.score));
-      const scale = fx.scale();
+      // 字号直接按放大后的尺寸算，不用 ctx.scale，也不把小图拉大
+      const size = 28 * fx.scale();
       const x = h.x + 4 + fx.shakeOffset();
       const y = h.y + 39;
-      ctx.save();
-      ctx.translate(x, y);
-      ctx.scale(scale, scale);
-      D.text(ctx, text, 0, 0, { size: 28, bold: true, color: fx.color(T.text) });
-      ctx.restore();
+      D.text(ctx, text, x, y, { size: size, bold: true, color: fx.color(T.text) });
 
       const f = fx.float;
       if (!f) return;
-      ctx.font = T.font(28, true);
-      const right = x + ctx.measureText(text).width * scale;
+      ctx.font = T.font(size, true);
+      const right = x + ctx.measureText(text).width;
       const k = f.t / fx.cfg.floatLife;
       ctx.save();
       ctx.globalAlpha = k < 0.6 ? 1 : 1 - (k - 0.6) / 0.4;
@@ -280,7 +309,7 @@
       D.text(ctx, progressText, p.x + 4, p.y + 10, { size: 16, color: inRush ? T.gold : T.textDim });
       D.text(ctx, '阶梯 ' + g.tierIndex + '/' + tiers.length, p.x + p.w - 4, p.y + 10, { size: 16, color: T.textDim, align: 'right' });
       const barY = p.y + 22;
-      D.fillRound(ctx, p.x, barY, p.w, 7, 3.5, T.cellEmpty);
+      D.fillRound(ctx, p.x, barY, p.w, 7, 3.5, this.stage.color('cellEmpty'));
       const k = inRush ? 1 : Math.max(0, Math.min(1, (shown - prev) / (next - prev)));
       if (k > 0) this._drawProgressFill(ctx, p, barY, k, !inRush && g.phase !== 'over');
 
@@ -348,12 +377,22 @@
       const g = this.game;
       const b = this.L.board;
       const n = g.board.size;
-      D.fillRound(ctx, b.x - 5, b.y - 5, b.size + 10, b.size + 10, 12, T.boardBg);
+      const cellEmpty = this.stage.color('cellEmpty');
+      // 发光用几圈半透明描边，不用 shadowBlur：棋盘每帧都画，大面积模糊太慢
+      const glow = this.stage.color('glow');
+      ctx.save();
+      [[6, 0.1], [4, 0.16], [2, 0.26]].forEach(function (ring) {
+        ctx.globalAlpha = ring[1];
+        D.strokeRound(ctx, b.x - 5 - ring[0], b.y - 5 - ring[0], b.size + 10 + ring[0] * 2, b.size + 10 + ring[0] * 2, 12 + ring[0], 2, glow);
+      });
+      ctx.restore();
+      D.fillRound(ctx, b.x - 5, b.y - 5, b.size + 10, b.size + 10, 12, this.stage.color('boardBg'));
+      D.strokeRound(ctx, b.x - 5, b.y - 5, b.size + 10, b.size + 10, 12, 1.5, this.stage.color('border'));
       for (let r = 0; r < n; r++) {
         for (let c = 0; c < n; c++) {
           const x = b.x + c * b.cell;
           const y = b.y + r * b.cell;
-          D.fillRound(ctx, x + 1, y + 1, b.cell - 2, b.cell - 2, b.cell * 0.18, T.cellEmpty);
+          D.fillRound(ctx, x + 1, y + 1, b.cell - 2, b.cell - 2, b.cell * 0.18, cellEmpty);
         }
       }
 

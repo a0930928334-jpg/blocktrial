@@ -13,7 +13,7 @@
 
     update(dt) {
       if (this.exitHintLeft > 0) this.exitHintLeft -= dt;
-      BG.Pwa.reloadIfUpdated();
+      BG.Pwa.checkForUpdate();
     }
 
     // 再按一次退出
@@ -34,6 +34,17 @@
       D.tile(ctx, cx + cell * 1.5, y, cell, 0);
     }
 
+    _updateNotice(ctx, screen, version) {
+      const safe = screen.safe;
+      const x = safe.left + 12;
+      const w = screen.width - safe.left - safe.right - 24;
+      const updating = BG.Pwa.isUpdating();
+      this.ui.button(ctx, 'update', x, safe.top + 8, w, 52, updating ? '正在更新…' : '有新版本 v' + version + '，点击更新', {
+        style: 'gold', size: 18, disabled: updating,
+        onTap: function () { BG.Pwa.applyUpdate(); }
+      });
+    }
+
     draw(ctx, screen) {
       const app = BG.App;
       const ui = this.ui;
@@ -43,14 +54,20 @@
       const x = safe.left + (screen.width - safe.left - safe.right - w) / 2;
       const cx = x + w / 2;
 
-      const contentH = 72 + 88 + 66 * 3 + 12 * 2 + 16 + 52;
-      const usable = screen.height - safe.top - safe.bottom;
-      let y = safe.top + Math.max(12, (usable - contentH) / 2);
+      const contentH = 72 + 88 + 30 + 66 * 3 + 12 * 2 + 16 + 52;
+      // 有新版本时顶部留出提示的位置，内容往下排，小屏幕上也不会重叠
+      const newVersion = BG.Pwa.availableVersion();
+      const noticeH = newVersion ? 64 : 0;
+      const usable = screen.height - safe.top - safe.bottom - noticeH;
+      let y = safe.top + noticeH + Math.max(12, (usable - contentH) / 2);
+      if (newVersion) this._updateNotice(ctx, screen, newVersion);
 
       this._logo(ctx, cx, y);
       y += 72 + 34;
       D.text(ctx, '方块试玩版', cx, y, { size: 30, bold: true, align: 'center' });
-      y += 44;
+      y += 34;
+      D.text(ctx, BG.Rank.text(BG.Rank.of(app.overallBest(), BG.Config)), cx, y, { size: 16, color: T.gold, align: 'center' });
+      y += 40;
 
       ui.button(ctx, 'classic', x, y, w, 66, '经典模式', {
         style: 'secondary', size: 20, sub: '最高分 ' + app.getBest('classic'),

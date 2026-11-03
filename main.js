@@ -55,12 +55,18 @@
       const isRecord = game.score > oldBest;
       if (isRecord) Storage.set(key, game.score);
 
+      const oldRank = BG.Rank.of(this.overallBest(), BG.Config);
+      const overall = Math.max(this.overallBest(), game.score);
+      Storage.set('overallBest', overall);
+      const rank = BG.Rank.of(overall, BG.Config);
+
       const record = game.record();
       record.finishedAt = new Date().toISOString();
+      BG.Leaderboard.submit(game.mode, game.score, { at: record.finishedAt });
       this.saveRecords(BG.Stats.addRecord(this.loadRecords(), record, BG.Config.stats.keep));
       Storage.set('gamesSinceAd', Storage.get('gamesSinceAd', 0) + 1);
 
-      return { isRecord: isRecord, best: Math.max(oldBest, game.score) };
+      return { isRecord: isRecord, best: Math.max(oldBest, game.score), rank: rank, rankUp: rank.index > oldRank.index };
     },
 
     showResult: function (game) {
@@ -116,6 +122,26 @@
 
     // ---------- 存储 ----------
 
+    // 所有模式里最高的一次分数。每日最高分按日期存，所以单独存一份；第一次用时从旧数据算出来
+    overallBest: function () {
+      const saved = Storage.get('overallBest', null);
+      if (saved !== null) return saved;
+      const best = this.loadRecords().reduce(function (max, r) {
+        return Math.max(max, r.score || 0);
+      }, Math.max(Storage.get('best_classic', 0), Storage.get('best_relic', 0)));
+      Storage.set('overallBest', best);
+      return best;
+    },
+
+    // 第一次运行时，把已有的统计记录写进本机排行榜
+    _seedLeaderboard: function () {
+      if (Storage.get('boardSeeded', false)) return;
+      Storage.set('boardSeeded', true);
+      this.loadRecords().forEach(function (r) {
+        BG.Leaderboard.submit(r.mode, r.score, { at: r.finishedAt });
+      });
+    },
+
     getBest: function (mode, seed) {
       return Storage.get(bestKey(mode, seed), 0);
     },
@@ -155,9 +181,13 @@
       BG.Ads.tick(dt);
     } else {
       const top = App.top();
+      App.stack.forEach(function (scene) {
+        if (scene !== top && scene.updateFx) scene.updateFx(dt);
+      });
       if (top.update) top.update(dt);
     }
 
+    Screen.sync();
     const ctx = Screen.context();
     ctx.setTransform(Screen.dpr, 0, 0, Screen.dpr, 0, 0);
     ctx.fillStyle = BG.Theme.bg;
@@ -192,6 +222,7 @@
     BG.Input.init(Screen.canvas(), onInput);
     BG.BackButton.init(function () { App.onBack(); });
     BG.Pwa.init();
+    App._seedLeaderboard();
     App.replace(new BG.MenuScene());
     Screen.onFrame(frame);
   }

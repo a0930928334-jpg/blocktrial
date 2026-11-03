@@ -29,7 +29,12 @@
     'T4a': ['XXX', '.X.'],
     'T4b': ['.X.', 'XXX'],
     'T4c': ['X.', 'XX', 'X.'],
-    'T4d': ['.X', 'XX', '.X']
+    'T4d': ['.X', 'XX', '.X'],
+    // S、Z 形（4 格），放在最后：每日挑战权重为 0，不改变原有序列
+    'S4h': ['.XX', 'XX.'],
+    'S4v': ['X.', 'XX', '.X'],
+    'Z4h': ['XX.', '.XX'],
+    'Z4v': ['.X', 'XX', 'X.']
   };
 
   const list = Object.keys(DEFS).map(function (id) {
