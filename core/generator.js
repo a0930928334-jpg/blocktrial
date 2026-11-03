@@ -59,14 +59,36 @@
       return { shape: shape, color: rng.int(this.cfg.board.colorCount) };
     }
 
-    // 按权重随机一组。有"小块"遗物时最后一块固定是 1×1。
-    rollGroup(rng, weights, count, ctx) {
+    // 按权重随机一组
+    rollGroup(rng, weights, count) {
       const pieces = [];
       for (let i = 0; i < count; i++) pieces.push(this._piece(rng, this._pick(rng, weights)));
-      if (ctx.has('smallPiece') && count > 0) {
-        pieces[count - 1] = { shape: BG.Shapes.byId['1x1'], color: pieces[count - 1].color };
-      }
       return pieces;
+    }
+
+    // 每日挑战：试几次，取总格数最接近这一步目标的一组。只看组号，不看棋盘
+    _rollDaily(rng, weights, count, ctx) {
+      const g = this.cfg.generator;
+      const target = interpolate(g.dailyCells, ctx.groupIndex * this.cfg.board.traySize);
+      let best = null;
+      let bestGap = Infinity;
+      for (let i = 0; i < g.dailyCellsTries; i++) {
+        const pieces = this.rollGroup(rng, weights, count);
+        const cells = pieces.reduce(function (sum, p) { return sum + p.shape.count; }, 0);
+        const gap = Math.abs(cells - target);
+        if (gap < bestGap) {
+          best = pieces;
+          bestGap = gap;
+        }
+        if (gap <= g.dailyCellsTolerance) break;
+      }
+      return best;
+    }
+
+    // 小块遗物送的 1×1
+    giftPiece(index) {
+      const rng = new BG.RNG(BG.RNG.derive(this.seed, 'gift', index));
+      return Object.assign(this._piece(rng, BG.Shapes.byId['1x1']), { gift: true });
     }
 
     // 抽 count 块，至少一块能放下。tag 和 index 决定所用的随机流。
@@ -75,7 +97,8 @@
       let pieces = [];
       for (let attempt = 0; attempt <= this.cfg.generator.maxRetries; attempt++) {
         const rng = new BG.RNG(BG.RNG.derive(this.seed, tag, index, attempt));
-        pieces = this.rollGroup(rng, weights, count, ctx);
+        const daily = this.fixed && count === this.cfg.board.traySize;
+        pieces = daily ? this._rollDaily(rng, weights, count, ctx) : this.rollGroup(rng, weights, count);
         if (pieces.some(function (p) { return board.hasPlacement(p.shape); })) return pieces;
       }
       // 满线都会被消除，棋盘不会全满，所以 1×1 一定放得下

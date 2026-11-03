@@ -22,30 +22,11 @@
       this.flybacks = [];
       this.relicFlashes = {};
       this.stamps = [];
-      this.celebration = 0;
     }
 
     // 大号印章：先放大再淡出，不挡操作
     stamp(text, name, x, y) {
       this.stamps.push({ text: text, name: name, x: x, y: y, t: 0 });
-    }
-
-    // 清盘的全屏庆祝
-    celebrate(screen) {
-      this.celebration = this.cfg.celebrateLife;
-      for (let i = 0; i < this.cfg.celebrateParticles; i++) {
-        const angle = Math.random() * Math.PI * 2;
-        const speed = 120 + Math.random() * 320;
-        this.particles.push({
-          x: screen.width / 2,
-          y: screen.height * 0.45,
-          vx: Math.cos(angle) * speed,
-          vy: Math.sin(angle) * speed - 80,
-          size: 4 + Math.random() * 6,
-          color: BG.Theme.pieces[i % BG.Theme.pieces.length].base,
-          t: 0
-        });
-      }
     }
 
     pop(cells) {
@@ -153,7 +134,6 @@
         if (this.floats[i].t >= this.floats[i].life) this.floats.splice(i, 1);
       }
       step(this.stamps, cfg.stampLife);
-      if (this.celebration > 0) this.celebration -= dt;
       step(this.flybacks, cfg.flyBack);
       const sec = dt / 1000;
       this.particles.forEach(function (p) {
@@ -206,21 +186,6 @@
 
     isFlying(pieceInfo) {
       return this.flybacks.some(function (f) { return f.piece === pieceInfo; });
-    }
-
-    drawCelebration(ctx, screen) {
-      if (this.celebration <= 0) return;
-      const k = 1 - this.celebration / this.cfg.celebrateLife;
-      ctx.save();
-      ctx.globalAlpha = 0.5 * (1 - k);
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, screen.width, screen.height);
-      ctx.globalAlpha = k < 0.7 ? 1 : 1 - (k - 0.7) / 0.3;
-      ctx.translate(screen.width / 2, screen.height * 0.3);
-      const scale = k < 0.2 ? lerp(0.6, 1.2, k / 0.2) : lerp(1.2, 1, Math.min(1, (k - 0.2) / 0.3));
-      ctx.scale(scale, scale);
-      BG.Draw.text(ctx, '清盘！', 0, 0, { size: 56, bold: true, color: BG.Theme.gold, align: 'center' });
-      ctx.restore();
     }
 
     drawStamps(ctx) {

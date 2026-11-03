@@ -52,6 +52,8 @@
       this.bombsGained = 0;
       this.bombsUsed = 0;
       this.clearsForBomb = 0;
+      this.groupsForSmall = 0;
+      this.lastPlaceCleared = false;
 
       this.swapsUsed = 0;
       this.revivesUsed = 0;
@@ -137,7 +139,21 @@
       this.dealLog.push(Object.assign({}, this.currentDeal));
       this.groupIndex++;
       this._emit('dealt', {});
-      if (this.has('smallPiece')) this._trigger('smallPiece', { at: 'tray' });
+      this._tickSmallPiece();
+    }
+
+    // 小块遗物：每发几组牌，托盘额外多一个 1×1
+    _tickSmallPiece() {
+      if (!this.has('smallPiece')) return;
+      this.groupsForSmall++;
+      if (this.groupsForSmall < this.cfg.relic.smallEvery) return;
+      this.groupsForSmall = 0;
+      this.tray.push(this.gen.giftPiece(this.groupIndex));
+      this._trigger('smallPiece', { at: 'tray' });
+    }
+
+    smallProgress() {
+      return { value: this.groupsForSmall, of: this.cfg.relic.smallEvery, full: false };
     }
 
     _pickDynamic(phase, count) {
@@ -184,9 +200,13 @@
     }
 
     _rerollTray() {
-      const count = this.tray.filter(Boolean).length;
+      // 小块遗物送的 1×1 不算在换牌里，保留下来
+      const gifts = this.tray.filter(function (p) { return p && p.gift; });
+      const normal = this.tray.filter(function (p) { return p && !p.gift; }).length;
+      const count = normal > 0 ? normal : gifts.length;
       this.rerollNo++;
       this.tray = this.gen.draw(this.board, count, 'reroll', this.groupIndex + ':' + this.rerollNo, this._ctx());
+      if (normal > 0) this.tray = this.tray.concat(gifts);
       const metrics = BG.Dealer.evaluate(this.board, this.tray, this.cfg);
       this.currentDeal.solvable = metrics.solvable;
       while (this.tray.length < this.cfg.board.traySize) this.tray.push(null);
@@ -220,27 +240,26 @@
 
       const lines = this.board.findFullLines();
       const removed = this.board.clearLines(lines);
-      const emptied = lines.length > 0 && this.board.isEmpty();
 
       this._updateCombo(lines.length);
       const result = BG.Scoring.compute({
         cellCount: shape.count,
         lines: lines,
         combo: this.combo,
-        emptied: emptied,
+        prevCleared: this.lastPlaceCleared,
         has: this._hasFn()
       }, this.cfg);
       const prevScore = this.score;
       this.score += result.total;
       this.linesCleared += lines.length;
       this.director.onScore(prevScore, this.score);
+      this.lastPlaceCleared = lines.length > 0;
 
       if (lines.length > 0) {
         this._emit('cleared', {
           lines: lines,
           removed: removed,
           combo: this.combo,
-          emptied: emptied,
           total: result.total
         });
       }
@@ -280,6 +299,8 @@
       this.clearsForBomb++;
       if (this.clearsForBomb >= this.cfg.relic.bombEvery) {
         this.clearsForBomb = 0;
+      this.groupsForSmall = 0;
+      this.lastPlaceCleared = false;
         this.bombs++;
         this.bombsGained++;
         this._trigger('timeBomb', this._centerOf(removed));
@@ -321,8 +342,6 @@
           const row = lines.find(function (l) { return l.type === 'row'; });
           const col = lines.find(function (l) { return l.type === 'col'; });
           pos = { r: row.index, c: col.index };
-        } else if (id === 'clearBoard') {
-          pos = { r: mid, c: mid };
         }
         this._trigger(id, Object.assign({ stamp: details[id].stamp, formula: details[id].formula }, pos));
       }, this);

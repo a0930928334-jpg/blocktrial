@@ -42,9 +42,15 @@ BG.Config = {
     // 分数越高大方块权重越高：[分数, 权重倍率]，中间线性插值
     bigCurve: [[0, 1], [1000, 1.1], [3000, 1.25], [6000, 1.4], [10000, 1.5]],
     // 每日挑战不看棋盘和分数，难放的方块按步数增多：[步数, 权重倍率]。
-    // 步数按"第几组 × 每组块数"算，所有人同一组的权重相同，序列才能完全一致
-    dailyHardCurve: [[0, 1], [30, 1.5], [90, 3], [150, 5]],
-    dailyHardShapes: ['1x4', '4x1', '1x5', '5x1', '3x3', 'L5a', 'L5b', 'L5c', 'L5d']
+    // 步数按"第几组 × 每组块数"算，所有人同一组的权重相同，序列才能完全一致。
+    // 第 90 步前和遗物模式靠拢，之后陡升，让冲分阶段很快结束。
+    // 冲分开始的步数因人而异，所以不按"进入冲分后第几步"算，否则大家的牌就不一样了。
+    dailyHardCurve: [[0, 1], [30, 2], [90, 16], [100, 30], [120, 100]],
+    dailyHardShapes: ['1x4', '4x1', '1x5', '5x1', '3x3', 'L5a', 'L5b', 'L5c', 'L5d'],
+    // 每日挑战每组总格数的目标：[步数, 格数]。相邻两组的目标接近，难度不会大起大落
+    dailyCells: [[0, 7], [30, 7.5], [90, 9], [100, 11], [115, 18]],
+    dailyCellsTolerance: 1,    // 总格数和目标相差多少以内算合适
+    dailyCellsTries: 12        // 每组最多试几次，都不合适时取最接近的
   },
 
   // ---------- 动态发牌（每日挑战不使用） ----------
@@ -105,12 +111,13 @@ BG.Config = {
   relic: {
     tiers: [80, 200, 350, 550, 800, 1100], // 分数阶梯，最后一档为通关
     choices: 3,            // 每次几选一
-    crossBonus: 50,        // 十字斩：额外得分
+    crossBonus: 100,       // 十字斩：额外得分
     edgeMult: 2,           // 边线：最外圈线的得分倍率
     bigClearMinLines: 2,   // 大消除：一次消除多少线触发
     bigClearMult: 2,       // 大消除：本次得分倍率
     comboBonusMult: 2,     // 连击：连击加成的倍数
-    clearBoardBonus: 500,  // 清盘：额外得分
+    chainBonus: 30,        // 连消：连续两步都有消除时的额外得分
+    smallEvery: 3,         // 小块：每发多少组牌送 1 个 1×1
     bombEvery: 5,          // 炸弹：每多少次"有消除的放置"得 1 颗
     bombMax: 2,            // 炸弹：最多同时持有几颗，持有满时进度暂停
     bombRadius: 1          // 炸弹：清除半径，1 表示 3×3
@@ -148,11 +155,28 @@ BG.Config = {
     stampLife: 700,       // 加分遗物的大号印章，先放大再淡出
     stampSize: 46,        // 印章字号
     formulaLife: 800,     // 算式飘字，加分遗物的反馈总时长不超过 800 毫秒
-    scoreRoll: 500,       // 分数滚动上涨并变色
-    celebrateLife: 800,   // 清盘的全屏庆祝
-    celebrateParticles: 70,// 清盘庆祝的粒子数
     relicFlashScale: 0.2, // 图标放大的幅度
-    modalDelay: 480       // 消除动画后，延迟多久弹遗物或结算
+    modalDelay: 480,      // 消除动画后，延迟多久弹遗物或结算
+    // 顶部分数的跳动，按本次加分分三档。有遗物加成时一律算大额
+    scoreJump: {
+      midMin: 20,         // 不少于这个分数算中额
+      bigMin: 100,        // 不少于这个分数算大额
+      riseRatio: 0.35,    // 放大阶段占整个动画的比例，之后回弹
+      small: { scale: 1.08, ms: 150, strength: 0, floatSize: 0 },
+      mid: { scale: 1.2, ms: 220, color: '#ffe08a', strength: 0.85, colorMs: 260, floatSize: 18 },
+      big: { scale: 1.35, ms: 300, color: '#ffc23c', strength: 1, colorMs: 420, floatSize: 28, shake: 3, shakeMs: 220 },
+      roll: { minMs: 120, msPerPoint: 4, maxMs: 500 }, // 滚动时长 = 分差 × msPerPoint，限制在范围内
+      floatLife: 800,     // "+N" 飘字寿命
+      floatMerge: 350,    // 飘字出现后这么久内再加分，就合并成一个数字
+      floatRise: 12       // 飘字上移多少逻辑像素
+    },
+    // "距下一个遗物"进度条，接近下一档时轻微脉动
+    progressPulse: {
+      remainRatio: 0.15,  // 剩余不到这一档的这个比例时开始
+      periodMs: 900,      // 一次脉动的时长
+      extraHeight: 3,     // 最多加高多少逻辑像素
+      glow: 0.45          // 最亮时叠加的白色强度
+    }
   },
 
   // ---------- 手感 ----------

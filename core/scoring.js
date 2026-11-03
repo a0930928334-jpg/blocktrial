@@ -20,7 +20,8 @@
     return String(Math.round(v * 10) / 10);
   }
 
-  // input: { cellCount, lines, combo, emptied, has(id) }，combo 是计入本次消除之后的值
+  // input: { cellCount, lines, combo, prevCleared, has(id) }，combo 是计入本次消除之后的值，
+  // prevCleared 表示上一步也有消除
   // triggers：本次真正生效的遗物 id；details：每个遗物的印章和算式，用于反馈
   function compute(input, cfg) {
     const has = input.has;
@@ -65,10 +66,10 @@
       bonus += rc.crossBonus;
       note('crossCut', '+' + rc.crossBonus, formatNumber(before) + ' +' + rc.crossBonus + ' = ' + formatNumber(before + rc.crossBonus));
     }
-    if (has('clearBoard') && input.emptied) {
+    if (has('chain') && n > 0 && input.prevCleared) {
       const before = placement + clear + bonus;
-      bonus += rc.clearBoardBonus;
-      note('clearBoard', '+' + rc.clearBoardBonus, formatNumber(before) + ' +' + rc.clearBoardBonus + ' = ' + formatNumber(before + rc.clearBoardBonus));
+      bonus += rc.chainBonus;
+      note('chain', '+' + rc.chainBonus, formatNumber(before) + ' +' + rc.chainBonus + ' = ' + formatNumber(before + rc.chainBonus));
     }
 
     let mult = 1;

@@ -27,9 +27,9 @@
       trigger: function () { return '连击 ×' + rc().comboBonusMult; }
     },
     {
-      id: 'clearBoard', type: 'score', name: '清盘',
-      short: function () { return '清空棋盘 +' + rc().clearBoardBonus; },
-      trigger: function () { return '清盘 +' + rc().clearBoardBonus; }
+      id: 'chain', type: 'score', name: '连消',
+      short: function () { return '连续消除 +' + rc().chainBonus; },
+      trigger: function () { return '连消 +' + rc().chainBonus; }
     },
     {
       id: 'timeBomb', type: 'item', name: '炸弹',
@@ -44,7 +44,7 @@
     {
       // 会改变发牌，每日挑战的序列要对所有人相同，所以不进每日候选池
       id: 'smallPiece', type: 'item', name: '小块', dailyExcluded: true,
-      short: function () { return '每组必有小方块'; },
+      short: function () { return '每' + rc().smallEvery + '组送小方块'; },
       trigger: function () { return '小块 +1'; }
     }
   ];

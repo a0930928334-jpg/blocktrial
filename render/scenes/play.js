@@ -18,8 +18,7 @@
       this.queue = [];
       this.holdRect = null;
       this.L = null;
-      this.rollFrom = 0;
-      this.rollT = -1;
+      this.fx = new BG.ScoreFx(BG.Config.anim.scoreJump);
       this.resize(BG.Screen);
     }
 
@@ -39,10 +38,7 @@
     update(dt) {
       this.game.tick(dt);
       this.anim.update(dt);
-      if (this.rollT >= 0) {
-        this.rollT += dt;
-        if (this.rollT >= BG.Config.anim.scoreRoll) this.rollT = -1;
-      }
+      this.fx.update(dt);
       if (this.tip) {
         this.tip.left -= dt;
         if (this.tip.left <= 0) this.tip = null;
@@ -69,12 +65,6 @@
       let sawClear = false;
       const triggerStack = { anchor: null, count: 0 };
       const hasStamp = events.some(function (e) { return e.type === 'relicTriggered' && e.stamp; });
-      if (hasStamp) {
-        // 分数从这一步之前的值滚动上涨
-        const scored = events.find(function (e) { return e.type === 'scored'; });
-        this.rollFrom = this._displayScore() < this.game.score - scored.total ? this._displayScore() : this.game.score - scored.total;
-        this.rollT = 0;
-      }
 
       events.forEach(function (e) {
         switch (e.type) {
@@ -106,6 +96,9 @@
             self.anim.flashRelic(e.id);
             if (e.stamp) self._stampTrigger(e, triggerStack);
             else self._floatTrigger(e, triggerStack);
+            break;
+          case 'scored':
+            self.fx.gain(e.total, self.game.score, e.detail.triggers.length > 0);
             break;
           case 'relicGained':
             BG.Audio.play('relic');
@@ -180,24 +173,12 @@
       this.anim.float(e.formula, x, y + 62, {
         size: 20, color: T.accent, life: BG.Config.anim.formulaLife, rise: 14
       });
-      if (e.id === 'clearBoard') {
-        this.anim.celebrate(BG.Screen);
-        BG.Audio.play('win');
-      } else {
-        BG.Audio.play('relicHit', BG.Relics.list.indexOf(relic));
-      }
+      BG.Audio.play('relicHit', BG.Relics.list.indexOf(relic));
     }
 
     _showToast(text) {
       const b = this.L.board;
       this.anim.float(text, b.x + b.size / 2, b.y + b.size * 0.3, { size: 22, color: T.gold });
-    }
-
-    _displayScore() {
-      const g = this.game;
-      if (this.rollT < 0) return g.score;
-      const k = this.rollT / BG.Config.anim.scoreRoll;
-      return Math.round(this.rollFrom + (g.score - this.rollFrom) * k * (2 - k));
     }
 
     _openStuckPanel() {
@@ -229,7 +210,6 @@
       this._drawTools(ctx);
       this._drawBanners(ctx);
       this._drawRelicTip(ctx);
-      this.anim.drawCelebration(ctx, screen);
       this.anim.drawParticles(ctx);
       this.anim.drawFlybacks(ctx);
       this._drawDragPiece(ctx);
@@ -241,9 +221,7 @@
       const h = this.L.header;
       const g = this.game;
       D.text(ctx, '分数', h.x + 4, h.y + 14, { size: 16, color: T.textDim });
-      D.text(ctx, String(this._displayScore()), h.x + 4, h.y + 39, {
-        size: 28, bold: true, color: this.rollT >= 0 ? T.gold : T.text
-      });
+      this._drawScoreNumber(ctx, h);
       const best = Math.max(this.best, g.score);
       D.text(ctx, '最高分', h.x + h.w - 4, h.y + 14, { size: 16, color: T.textDim, align: 'right' });
       D.text(ctx, String(best), h.x + h.w - 4, h.y + 39, { size: 22, bold: true, color: T.gold, align: 'right' });
@@ -262,6 +240,30 @@
       }
     }
 
+    // 分数数字：以左端为基点放大，大额时分数区轻微抖动，右边飘 "+N"
+    _drawScoreNumber(ctx, h) {
+      const fx = this.fx;
+      const text = String(fx.display(this.game.score));
+      const scale = fx.scale();
+      const x = h.x + 4 + fx.shakeOffset();
+      const y = h.y + 39;
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.scale(scale, scale);
+      D.text(ctx, text, 0, 0, { size: 28, bold: true, color: fx.color(T.text) });
+      ctx.restore();
+
+      const f = fx.float;
+      if (!f) return;
+      ctx.font = T.font(28, true);
+      const right = x + ctx.measureText(text).width * scale;
+      const k = f.t / fx.cfg.floatLife;
+      ctx.save();
+      ctx.globalAlpha = k < 0.6 ? 1 : 1 - (k - 0.6) / 0.4;
+      D.text(ctx, '+' + f.amount, right + 10, y - k * fx.cfg.floatRise, { size: f.size, bold: true, color: f.color });
+      ctx.restore();
+    }
+
     _drawRelicBar(ctx) {
       const g = this.game;
       const p = this.L.progress;
@@ -269,7 +271,9 @@
       const idx = Math.min(g.tierIndex, tiers.length - 1);
       const next = tiers[idx];
       const prev = idx > 0 ? tiers[idx - 1] : 0;
-      const left = Math.max(0, next - g.score);
+      // 进度条和分数数字同步，跟着滚动的数值走
+      const shown = this.fx.display(g.score);
+      const left = Math.max(0, next - shown);
       const isLast = idx === tiers.length - 1;
       const inRush = g.rushStartStep !== null;
       const progressText = inRush ? '冲分阶段，坚持到卡死' : (isLast ? '距通关 ' : '距下一个遗物 ') + left + ' 分';
@@ -277,8 +281,8 @@
       D.text(ctx, '阶梯 ' + g.tierIndex + '/' + tiers.length, p.x + p.w - 4, p.y + 10, { size: 16, color: T.textDim, align: 'right' });
       const barY = p.y + 22;
       D.fillRound(ctx, p.x, barY, p.w, 7, 3.5, T.cellEmpty);
-      const k = inRush ? 1 : Math.max(0, Math.min(1, (g.score - prev) / (next - prev)));
-      if (k > 0) D.fillRound(ctx, p.x, barY, Math.max(7, p.w * k), 7, 3.5, T.accent);
+      const k = inRush ? 1 : Math.max(0, Math.min(1, (shown - prev) / (next - prev)));
+      if (k > 0) this._drawProgressFill(ctx, p, barY, k, !inRush && g.phase !== 'over');
 
       const r = this.L.relicRow;
       if (g.relics.length === 0) {
@@ -292,7 +296,8 @@
         const cy = r.y + r.h / 2;
         const fx = self.anim.relicFlash(id);
         D.relicIcon(ctx, id, cx, cy, size * fx.scale, { flash: fx.flash });
-        if (id === 'timeBomb') self._drawBombProgress(ctx, cx, cy, size);
+        if (id === 'timeBomb') self._drawRelicProgress(ctx, g.bombProgress(), cx, cy, size);
+        if (id === 'smallPiece') self._drawRelicProgress(ctx, g.smallProgress(), cx, cy, size);
         self.ui.area('relic_' + id, cx - size / 2 - 2, r.y, size + 4, r.h, function () {
           const same = self.tip && self.tip.id === id;
           self.tip = same ? null : { id: id, x: cx, left: BG.Config.ui.relicTipMs };
@@ -300,8 +305,25 @@
       });
     }
 
-    _drawBombProgress(ctx, cx, cy, size) {
-      const p = this.game.bombProgress();
+    // 接近下一档时轻微脉动：变高一点、变亮一点
+    _drawProgressFill(ctx, p, barY, k, canPulse) {
+      const cfg = BG.Config.anim.progressPulse;
+      const w = Math.max(7, p.w * k);
+      if (!canPulse || 1 - k >= cfg.remainRatio) {
+        D.fillRound(ctx, p.x, barY, w, 7, 3.5, T.accent);
+        return;
+      }
+      const wave = 0.5 - 0.5 * Math.cos(2 * Math.PI * this.fx.time / cfg.periodMs);
+      const extra = cfg.extraHeight * wave;
+      D.fillRound(ctx, p.x, barY - extra / 2, w, 7 + extra, (7 + extra) / 2, T.accent);
+      ctx.save();
+      ctx.globalAlpha = cfg.glow * wave;
+      D.fillRound(ctx, p.x, barY - extra / 2, w, 7 + extra, (7 + extra) / 2, '#ffffff');
+      ctx.restore();
+    }
+
+    // 炸弹和小块的图标进度，逻辑相同
+    _drawRelicProgress(ctx, p, cx, cy, size) {
       const w = Math.max(30, size * 0.8);
       D.fillRound(ctx, cx - w / 2, cy + size / 2 - 18, w, 19, 6, 'rgba(11, 14, 19, 0.92)');
       const label = p.full ? '满' : p.value + '/' + p.of;
