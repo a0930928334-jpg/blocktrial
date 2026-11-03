@@ -23,6 +23,7 @@
       this.stage = new BG.StageView(this.game.stageNumber(), BG.Config.anim.stageFade);
       this.bannerStage = this.game.stageNumber();
       this.stageBanner = null;
+      this.rewardToast = null;
       this.resize(BG.Screen);
     }
 
@@ -71,11 +72,17 @@
         this.stageBanner.left -= dt;
         if (this.stageBanner.left <= 0) this.stageBanner = null;
       }
+      if (this.rewardToast) {
+        this.rewardToast.left -= dt;
+        if (this.rewardToast.left <= 0) this.rewardToast = null;
+      }
       const stage = g.stageNumber();
       if (stage === this.bannerStage || g.phase !== 'playing') return;
       this.bannerStage = stage;
       if (g.fixedSequence) return;
-      this.stageBanner = { text: '阶段 ' + stage + ' · 难度提升', left: BG.Config.anim.stageBannerLife };
+      // 到了难度上限之后只报阶段，不能再说难度提升
+      const raises = BG.Dealer.stageRaises(stage, BG.Config, g.mode);
+      this.stageBanner = { text: '阶段 ' + stage + (raises ? ' · 难度提升' : ''), left: BG.Config.anim.stageBannerLife };
     }
 
     _later(wait, run) {
@@ -131,8 +138,12 @@
             self._onMilestone(e);
             break;
           case 'relicGained':
-          case 'rewardGained':
             BG.Audio.play('relic');
+            break;
+          case 'rewardGranted':
+            BG.Audio.play('relic');
+            BG.Vibrate.short(cfg.feel.vibrateMs);
+            self.rewardToast = { text: '奖励：' + BG.Rewards[e.id].toast, left: cfg.anim.rewardToastLife };
             break;
           case 'rushStart':
             BG.Audio.play('win');
@@ -147,8 +158,6 @@
       events.forEach(function (e) {
         if (e.type === 'relicOffer') {
           self._later(wait, function () { app.push(new BG.RelicPickScene(self.game)); });
-        } else if (e.type === 'rewardOffer') {
-          self._later(wait, function () { app.push(new BG.RewardPickScene(self.game)); });
         } else if (e.type === 'stuck' || e.type === 'stuckReopen') {
           self._later(wait, function () { self._openStuckPanel(); });
         } else if (e.type === 'gameOver') {
@@ -260,6 +269,7 @@
       this._drawTools(ctx);
       this.celebrate.drawBanner(ctx, this.L.header, this.stage.color('glow'));
       this._drawStageBanner(ctx);
+      this._drawRewardToast(ctx);
       this._drawBanners(ctx);
       this._drawRelicTip(ctx);
       this.anim.drawParticles(ctx);
@@ -284,6 +294,24 @@
       D.fillRound(ctx, x, y, w, 36, 18, 'rgba(11, 14, 19, 0.9)');
       D.strokeRound(ctx, x, y, w, 36, 18, 1.5, this.stage.color('glow'));
       D.text(ctx, s.text, x + w / 2, y + 18, { size: 18, bold: true, align: 'center', color: this.stage.color('glow') });
+      ctx.restore();
+    }
+
+    // 显示在遗物图标那一行，不接管输入
+    _drawRewardToast(ctx) {
+      const s = this.rewardToast;
+      if (!s) return;
+      const r = this.L.relicRow;
+      const k = s.left / BG.Config.anim.rewardToastLife;
+      ctx.font = T.font(18, true);
+      const w = ctx.measureText(s.text).width + 32;
+      const x = r.x + (r.w - w) / 2;
+      const y = r.y + (r.h - 38) / 2;
+      ctx.save();
+      ctx.globalAlpha = Math.min(1, k * 4);
+      D.fillRound(ctx, x, y, w, 38, 19, '#2a1e04');
+      D.strokeRound(ctx, x, y, w, 38, 19, 2, T.gold);
+      D.text(ctx, s.text, x + w / 2, y + 19, { size: 18, bold: true, align: 'center', color: T.gold });
       ctx.restore();
     }
 
@@ -340,16 +368,15 @@
       const inRush = g.rushStartStep !== null;
       // 遗物模式过了最后一档，进度条改成走向下一个奖励，每日挑战是冲分，没有下一档
       const inReward = inRush && !g.fixedSequence;
-      const next = inReward ? g.rewardScoreAt(g.rewardIndex) : tiers[idx];
+      const next = inReward ? g.rewardAt(g.rewardIndex).score : tiers[idx];
       const lastTier = tiers[tiers.length - 1];
-      const prev = inReward ? (g.rewardIndex > 0 ? g.rewardScoreAt(g.rewardIndex - 1) : lastTier) : (idx > 0 ? tiers[idx - 1] : 0);
+      const prev = inReward ? (g.rewardIndex > 0 ? g.rewardAt(g.rewardIndex - 1).score : lastTier) : (idx > 0 ? tiers[idx - 1] : 0);
       // 进度条和分数数字同步，跟着滚动的数值走
       const shown = this.fx.display(g.score);
       const left = Math.max(0, next - shown);
-      const isLast = idx === tiers.length - 1;
       let progressText = '冲分阶段，坚持到卡死';
       if (inReward) progressText = '距下一个奖励 ' + left + ' 分';
-      else if (!inRush) progressText = (isLast ? (g.fixedSequence ? '距冲分阶段 ' : '距奖励阶段 ') : '距下一个遗物 ') + left + ' 分';
+      else if (!inRush) progressText = '距下一个遗物 ' + left + ' 分';
       D.text(ctx, progressText, p.x + 4, p.y + 10, { size: 16, color: inRush ? T.gold : T.textDim });
       const rightText = inReward ? '奖励 ' + BG.Stats.sumMap(g.rewardsGained) : '阶梯 ' + g.tierIndex + '/' + tiers.length;
       D.text(ctx, rightText, p.x + p.w - 4, p.y + 10, { size: 16, color: inReward ? T.gold : T.textDim, align: 'right' });
@@ -498,8 +525,7 @@
       const app = BG.App;
       const can = g.canAct();
       const tools = [];
-      // 奖励的炸弹不需要炸弹遗物
-      if (g.has('timeBomb') || g.bombs > 0) {
+      if (g.has('timeBomb')) {
         tools.push({
           id: 'bomb', label: '炸弹', sub: '×' + g.bombs, disabled: !can || g.bombs <= 0, style: self.aiming ? 'gold' : undefined,
           onTap: function () {
@@ -525,6 +551,8 @@
           });
         }
       });
+      // 免费复活只在卡死时用，这里只显示还有几次
+      if (g.freeRevives > 0) tools.push({ id: 'freeRevive', label: '复活', sub: '免费×' + g.freeRevives, style: 'gold' });
       tools.push({
         id: 'pause', label: '暂停', disabled: g.phase === 'over',
         onTap: function () { app.push(new BG.PauseScene(g)); }

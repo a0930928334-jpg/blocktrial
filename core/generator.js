@@ -22,8 +22,9 @@
       this.cfg = cfg;
     }
 
-    // ctx: { score, groupIndex, has(id), bigMult?, smallMult?, placements, szAllowed, szBoard?, oneAllowed, board?, bigAllowed? }
-    // board 只在后期规则下传入：放不下的形状权重为 0。szBoard：S/Z 合法位置太少时权重为 0。
+    // ctx: { score, groupIndex, has(id), awkwardMult?, placements, szAllowed, szBoard?, oneAllowed, board?, bigAllowed? }
+    // board 动态发牌时传入：放不下的形状权重为 0。szBoard：S/Z 合法位置太少时权重为 0。
+    // 大方块和小方块的权重不随阶段、步数、分数变化，见 CLAUDE.md 的设计原则。
     // 返回 { 形状id: 权重 }
     weights(ctx) {
       const g = this.cfg.generator;
@@ -37,12 +38,11 @@
         });
         return out;
       }
-      const boost = interpolate(g.bigCurve, ctx.score) * (ctx.bigMult || 1);
       const sz = ctx.szAllowed === false ? 0 : interpolate(g.sz.curve, ctx.placements || 0);
       BG.Shapes.list.forEach(function (shape) {
         let w = g.shapeWeights[shape.id] || 0;
-        if (shape.count >= g.bigCells) w = ctx.bigAllowed === false ? 0 : w * boost;
-        if (shape.count <= g.smallCells && ctx.smallMult !== undefined) w *= ctx.smallMult;
+        if (shape.count >= g.bigCells && ctx.bigAllowed === false) w = 0;
+        if (ctx.awkwardMult && g.awkwardShapes.indexOf(shape.id) !== -1) w *= ctx.awkwardMult;
         if (g.sz.ids.indexOf(shape.id) !== -1) {
           w *= sz;
           if (w > 0 && ctx.szBoard && ctx.szBoard.countPlacements(shape) < g.sz.minMoves) w = 0;
@@ -70,12 +70,35 @@
       return { shape: shape, color: rng.int(this.cfg.board.colorCount) };
     }
 
-    // 按权重随机一组，每组最多 1 块 S/Z
-    rollGroup(rng, weights, count) {
+    // 这一组的大方块先定下来：每个位置按固定权重抽一次，抽到大方块就留下。
+    // 候选组共用这份计划，只在其他位置上比难度，这样选得再难，大方块也不会变多。
+    bigPlan(rng, weights, count) {
+      const plan = [];
+      for (let i = 0; i < count; i++) {
+        const shape = this._pick(rng, weights);
+        plan.push(shape.count >= this.cfg.generator.bigCells ? this._piece(rng, shape) : null);
+      }
+      return plan;
+    }
+
+    // 去掉大方块的权重
+    withoutBig(weights) {
+      const out = Object.assign({}, weights);
+      const big = this.cfg.generator.bigCells;
+      BG.Shapes.list.forEach(function (s) { if (s.count >= big) out[s.id] = 0; });
+      return out;
+    }
+
+    // 按权重随机一组，每组最多 1 块 S/Z。plan：已经定好的大方块，其他位置按 weights 抽
+    rollGroup(rng, weights, count, plan) {
       const szIds = this.cfg.generator.sz.ids;
       const pieces = [];
       let w = weights;
       for (let i = 0; i < count; i++) {
+        if (plan && plan[i]) {
+          pieces.push(plan[i]);
+          continue;
+        }
         const shape = this._pick(rng, w);
         pieces.push(this._piece(rng, shape));
         if (szIds.indexOf(shape.id) !== -1) {
@@ -141,14 +164,14 @@
       return pieces;
     }
 
-    // 保底发牌：逐块在模拟棋盘上试放，保证这组小方块按顺序都能放下
+    // 保底发牌：逐块在模拟棋盘上试放，保证这组小方块按顺序都能放下，而且发牌当下每块都有位置
     drawSmallGuaranteed(board, count, maxCells, index) {
       const rng = new BG.RNG(BG.RNG.derive(this.seed, 'revive', index));
       const sim = board.clone();
       const small = BG.Shapes.list.filter(function (s) { return s.count <= maxCells; });
       const pieces = [];
       for (let i = 0; i < count; i++) {
-        const fits = small.filter(function (s) { return sim.hasPlacement(s); });
+        const fits = small.filter(function (s) { return board.hasPlacement(s) && sim.hasPlacement(s); });
         const shape = fits[rng.int(fits.length)];
         pieces.push(this._piece(rng, shape));
         this._simulate(sim, shape);

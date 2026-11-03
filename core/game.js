@@ -2,7 +2,6 @@
 // phase：
 //   playing   正常游戏
 //   relicPick 等待遗物三选一
-//   rewardPick 等待奖励三选一
 //   stuck     没有方块放得下，等玩家在面板上选择：炸弹、换一组、复活、放弃
 //   over      本局结束
 (function () {
@@ -47,13 +46,10 @@
       this.pendingTiers = [];
       this.offer = null;
       this.rewardIndex = 0;
-      this.pendingRewards = [];
-      this.rewardOffer = null;
       this.rewardsGained = {};
       this.rewardsUsed = {};
       this.freeSwaps = 0;
       this.freeRevives = 0;
-      this.rewardBombs = 0;
 
       this.hold = null;
       this.holdUnlocked = false;
@@ -129,12 +125,12 @@
       return !late || (this.lateSzDealt + 1) / (this.lateDealt + count) <= sz.lateMaxRatio;
     }
 
-    // 这一阶段的发牌条件。后期规则只发现在放得下的形状，棋盘太挤或复活缓冲时不发大方块
+    // 这一阶段的发牌条件。动态发牌只发现在放得下的形状，棋盘太挤或复活缓冲时不发大方块
     _dealCtx(phase) {
       const late = BG.Dealer.isLate(phase, this.placements, this.cfg, this.mode);
       const ctx = this._ctx();
-      if (late) {
-        ctx.szAllowed = this._szAllowed(true);
+      if (late) ctx.szAllowed = this._szAllowed(true);
+      if (phase !== 'daily' && phase !== 'off') {
         ctx.board = this.board;
         ctx.bigAllowed = phase !== 'buffer' && this.board.emptyCount() >= this.cfg.dealer.bigMinEmpty;
       }
@@ -198,24 +194,32 @@
       const phase = this.director.next(this.placements, this.score, buffer);
       const count = this.cfg.board.traySize;
       let picked = null;
-      if (phase !== 'daily' && phase !== 'off') picked = this._pickDynamic(phase, count);
+      const dynamic = phase !== 'daily' && phase !== 'off';
+      if (dynamic) picked = this._pickDynamic(phase, count);
       if (picked) {
         this.tray = picked.pieces;
       } else {
-        const needSafe = phase === 'warmup' || phase === 'trial' || phase === 'sprint' || phase === 'buffer';
-        this.tray = needSafe
+        // 动态发牌找不到 3 块都能放、有解的组时发保底的小方块，这种组一定存在
+        this.tray = dynamic
           ? this.gen.drawSmallGuaranteed(this.board, count, this.cfg.dealer.fallbackMaxCells, this.groupIndex)
           : this.gen.draw(this.board, count, 'group', this.groupIndex, this._dealCtx(phase));
       }
       if (buffer) this._applyBufferSwap();
       const gifted = this._tickSmallPiece();
+      // 小块换掉的那块可能正是消线腾位置要用的，换完没解就改发保底的小方块
+      if (gifted && dynamic && BG.Dealer.evaluate(this.board, this.tray, this.cfg).solvable === false) {
+        this.tray = this.gen.drawSmallGuaranteed(this.board, count, this.cfg.dealer.fallbackMaxCells, this.groupIndex);
+      }
       const late = BG.Dealer.isLate(phase, this.placements, this.cfg, this.mode);
       this._countDealt(late);
       const metrics = picked && !gifted && !buffer ? picked.metrics : BG.Dealer.evaluate(this.board, this.tray, this.cfg);
-      const relaxed = late && metrics.fits < metrics.count;
+      const relaxed = dynamic && (metrics.fits < metrics.count || metrics.solvable === false);
       if (relaxed) this.relaxedDeals++;
       this.currentDeal = {
         phase: phase,
+        stage: this.stageNumber(),
+        big: this.tray.filter(function (p) { return p.shape.count >= this.cfg.generator.bigCells; }, this).length,
+        moves: Math.round(metrics.moves.reduce(function (a, b) { return a + b; }, 0) / metrics.count * 10) / 10,
         difficulty: metrics.difficulty,
         fits: metrics.fits,
         solvable: metrics.solvable,
@@ -251,33 +255,38 @@
       return { value: this.groupsForSmall, of: this.cfg.relic.smallEvery, full: false };
     }
 
-    _pickDynamic(phase, count) {
+    // rerollNo：换一组时传入，用另一条随机流，不发 S/Z
+    _pickDynamic(phase, count, rerollNo) {
       const d = this.cfg.dealer;
-      const late = BG.Dealer.isLate(phase, this.placements, this.cfg, this.mode);
       const ctx = this._dealCtx(phase);
-      if (phase === 'normal') {
-        ctx.bigMult = BG.Dealer.normalBigMult(this.stageNumber(), this.cfg, this.mode);
-        ctx.smallMult = BG.Dealer.normalSmallMult(this.stageNumber(), this.cfg, this.mode);
-      }
+      if (rerollNo) ctx.szAllowed = false;
+      const salt = rerollNo ? ':' + rerollNo : '';
       const budget = { left: d.dealNodeBudget };
       const candidates = [];
-      const roll = function (self, tag, weights, total) {
+      const roll = function (self, tag, weights, total, plan) {
         for (let i = 0; i < total; i++) {
           const rng = new BG.RNG(BG.RNG.derive(self.seed, tag, self.groupIndex, i));
-          const pieces = self.gen.rollGroup(rng, weights, count);
+          const pieces = self.gen.rollGroup(rng, weights, count, plan);
           candidates.push({ pieces: pieces, metrics: BG.Dealer.evaluate(self.board, pieces, self.cfg, budget) });
         }
       };
-      roll(this, 'dynamic', this.gen.weights(ctx), d.candidates);
-      // 后期候选都不合格时，放宽之前先用小方块再试一轮，给这一轮留出搜索预算
-      if (late && !candidates.some(BG.Dealer.fullFit)) {
+      // 热身和复活缓冲本来就选最容易的，大方块不会变多，不用计划
+      const easy = phase === 'warmup' || phase === 'buffer';
+      const stage = this.stageNumber();
+      const planRng = new BG.RNG(BG.RNG.derive(this.seed, 'bigPlan' + salt, this.groupIndex));
+      const plan = easy ? null : this.gen.bigPlan(planRng, this.gen.weights(ctx), count);
+      if (phase === 'normal' || phase === 'sprint' || phase === 'trial') ctx.awkwardMult = BG.Dealer.normalAwkwardMult(stage, this.cfg, this.mode);
+      const weights = this.gen.weights(ctx);
+      roll(this, 'dynamic' + salt, easy ? weights : this.gen.withoutBig(weights), d.candidates, plan);
+      // 候选都不合格时，先用小方块再试一轮，给这一轮留出搜索预算
+      if (!candidates.some(BG.Dealer.fullFit)) {
         const small = this.gen.weights(ctx);
         BG.Shapes.list.forEach(function (s) { if (s.count > d.smallRetryCells) small[s.id] = 0; });
         budget.left = Math.max(budget.left, d.candidateNodeBudget * 4);
-        roll(this, 'dynamicSmall', small, Math.ceil(d.candidates / 3));
+        roll(this, 'dynamicSmall' + salt, small, Math.ceil(d.candidates / 3));
       }
-      const pickRng = new BG.RNG(BG.RNG.derive(this.seed, 'dynamicPick', this.groupIndex));
-      return BG.Dealer.select(phase, candidates, pickRng, this.cfg, this.placements, this.mode, this.stageNumber());
+      const pickRng = new BG.RNG(BG.RNG.derive(this.seed, 'dynamicPick' + salt, this.groupIndex));
+      return BG.Dealer.select(phase, candidates, pickRng, this.cfg, this.mode, stage);
     }
 
     // ---------- 托盘 ----------
@@ -315,9 +324,16 @@
       this.rerollNo++;
       // 缓冲期里换牌（包括刚复活、缓冲还没开始用的那一组）也要守缓冲的规矩。换一组不发 S/Z
       const buffer = this.currentDeal.buffer || this.bufferLeft > 0;
-      const ctx = this._dealCtx(buffer && this.director.dynamic ? 'buffer' : this.currentDeal.phase);
-      ctx.szAllowed = false;
-      this.tray = this.gen.draw(this.board, count, 'reroll', this.groupIndex + ':' + this.rerollNo, ctx);
+      const phase = buffer && this.director.dynamic ? 'buffer' : this.currentDeal.phase;
+      if (this.director.dynamic) {
+        // 换出来的牌和正常发牌同样难，也一样 3 块都能放、有解
+        const picked = this._pickDynamic(phase, count, this.rerollNo);
+        this.tray = picked ? picked.pieces : this.gen.drawSmallGuaranteed(this.board, count, this.cfg.dealer.fallbackMaxCells, this.groupIndex + ':' + this.rerollNo);
+      } else {
+        const ctx = this._dealCtx(phase);
+        ctx.szAllowed = false;
+        this.tray = this.gen.draw(this.board, count, 'reroll', this.groupIndex + ':' + this.rerollNo, ctx);
+      }
       if (buffer) this._applyBufferSwap();
       if (normal > 0) this.tray = this.tray.concat(gifts);
       const metrics = BG.Dealer.evaluate(this.board, this.tray, this.cfg);
@@ -386,7 +402,7 @@
       // 先看有没有过阶梯：选完遗物再发牌，遗物和考验期才能作用到这组牌
       this._checkTiers();
       if (this._trayEmpty()) {
-        if (this._picking()) this.dealPending = true;
+        if (this.phase === 'relicPick') this.dealPending = true;
         else this._deal();
       }
       this._afterChange();
@@ -408,7 +424,7 @@
       else if (crossed) this._emit('milestone', { kind: 'score', score: level * step, level: level });
     }
 
-    // 阶段序号，从 1 开始：遗物模式按阶梯，过了最后一档按分数走得更快；经典和每日挑战按分数台阶
+    // 阶段序号，从 1 开始：遗物模式按阶梯，过了最后一档按分数；经典和每日挑战按分数台阶
     stageNumber() {
       if (this.mode !== 'relic') return Math.floor(this.score / this.cfg.milestone.scoreStep) + 1;
       const tiers = this.cfg.relic.tiers;
@@ -488,13 +504,11 @@
       const tiers = this.cfg.relic.tiers;
       const last = tiers.length - 1;
       while (this.tierIndex <= last && this.score >= tiers[this.tierIndex]) {
+        // 到达最后一档不结束，玩到卡死，用最终分数比较。遗物模式叫奖励阶段，每日挑战叫冲分
         if (this.tierIndex === last) {
-          this.tierIndex++;
-          // 到达最后一档不结束，玩到卡死，用最终分数比较。遗物模式叫奖励阶段，每日挑战叫冲分
           this.rushStartStep = this.placements;
           this.rushStartMs = this.elapsedMs;
           this._emit('rushStart', {});
-          break;
         }
         if (this.firstRelicStep === null) {
           this.firstRelicStep = this.placements;
@@ -502,40 +516,30 @@
         }
         this.pendingTiers.push(this.tierIndex);
         this.tierIndex++;
-        this.director.onTier();
       }
       this._checkRewards();
-      if ((this.pendingTiers.length > 0 || this.pendingRewards.length > 0) && !this._picking()) this._nextOffer();
+      if (this.pendingTiers.length > 0 && this.phase !== 'relicPick') this._nextOffer();
     }
 
-    _picking() {
-      return this.phase === 'relicPick' || this.phase === 'rewardPick';
-    }
-
-    // 第 index 个奖励台阶的分数
-    rewardScoreAt(index) {
+    // 第 index 个奖励：{ score, id }
+    rewardAt(index) {
       const r = this.cfg.relic.reward;
-      if (index < r.scores.length) return r.scores[index];
-      return r.scores[r.scores.length - 1] + r.every * (index - r.scores.length + 1);
+      if (index < r.fixed.length) return { score: r.fixed[index][0], id: r.fixed[index][1] };
+      return { score: r.fixed[r.fixed.length - 1][0] + r.every * (index - r.fixed.length + 1), id: r.everyId };
     }
 
+    // 到达时直接发放
     _checkRewards() {
       if (this.mode !== 'relic') return;
-      while (this.score >= this.rewardScoreAt(this.rewardIndex)) {
-        this.pendingRewards.push(this.rewardIndex);
+      for (let next = this.rewardAt(this.rewardIndex); this.score >= next.score; next = this.rewardAt(this.rewardIndex)) {
         this.rewardIndex++;
+        this.rewardsGained[next.id] = (this.rewardsGained[next.id] || 0) + 1;
+        if (next.id === 'swap') this.freeSwaps++;
+        else this.freeRevives++;
+        this._emit('rewardGranted', { id: next.id, score: next.score });
       }
     }
 
-    // 拿过的免费复活不再出现，所以后面可能只剩两个选项
-    _rewardChoices(index) {
-      const r = this.cfg.relic.reward;
-      const gained = this.rewardsGained.revive || 0;
-      const pool = r.pool.filter(function (id) { return id !== 'revive' || gained < r.reviveMax; });
-      return new BG.RNG(BG.RNG.derive(this.seed, 'reward', index)).shuffle(pool);
-    }
-
-    // 先出完遗物，再出奖励
     _nextOffer() {
       while (this.pendingTiers.length > 0) {
         const tier = this.pendingTiers.shift();
@@ -547,25 +551,7 @@
           return true;
         }
       }
-      if (this.pendingRewards.length > 0) {
-        const index = this.pendingRewards.shift();
-        this.rewardOffer = { index: index, ids: this._rewardChoices(index) };
-        this.phase = 'rewardPick';
-        this._emit('rewardOffer', {});
-        return true;
-      }
       return false;
-    }
-
-    // 选完之后：还有没选的就接着弹，都选完才发牌
-    _afterPick() {
-      if (this._nextOffer()) return;
-      this.phase = 'playing';
-      if (this.dealPending) {
-        this.dealPending = false;
-        this._deal();
-      }
-      this._afterChange();
     }
 
     pickRelic(id) {
@@ -578,25 +564,13 @@
       const rng = new BG.RNG(BG.RNG.derive(this.seed, 'trial', tier));
       this.director.onRelicPicked(t.minGroups + rng.int(t.maxGroups - t.minGroups + 1));
       this.offer = null;
-      this._afterPick();
-      return true;
-    }
-
-    pickReward(id) {
-      if (this.phase !== 'rewardPick' || this.rewardOffer.ids.indexOf(id) === -1) return false;
-      this.rewardsGained[id] = (this.rewardsGained[id] || 0) + 1;
-      if (id === 'bomb') {
-        this.bombs++;
-        this.bombsGained++;
-        this.rewardBombs++;
-      } else if (id === 'swap') {
-        this.freeSwaps++;
-      } else {
-        this.freeRevives++;
+      if (this._nextOffer()) return true;
+      this.phase = 'playing';
+      if (this.dealPending) {
+        this.dealPending = false;
+        this._deal();
       }
-      this._emit('rewardGained', { id: id });
-      this.rewardOffer = null;
-      this._afterPick();
+      this._afterChange();
       return true;
     }
 
@@ -638,11 +612,6 @@
       if (!this.canAct() || this.bombs <= 0) return false;
       this.bombs--;
       this.bombsUsed++;
-      // 炸弹是同一堆，先算用掉奖励来的
-      if (this.rewardBombs > 0) {
-        this.rewardBombs--;
-        this._noteRewardUsed('bomb');
-      }
       this._noteStuckChoice('bomb');
       const removed = this.board.clearArea(r, c, this.cfg.relic.bombRadius);
       this._emit('bombed', { r: r, c: c, removed: removed });
@@ -839,6 +808,9 @@
         bombsUsed: this.bombsUsed,
         rewardsGained: this.rewardsGained,
         rewardsUsed: this.rewardsUsed,
+        sprintEntries: this.director.entries.sprint || 0,
+        bonusEntries: this.director.entries.bonus || 0,
+        diedInSprint: this.endReason === 'stuck' && this.director.dynamic && this.director.inSprintWindow(this.score),
         endReason: this.endReason,
         endType: this.endType,
         endPhase: this.currentDeal.phase,
@@ -850,7 +822,7 @@
         ads: this.ads,
         dynamicDeal: this.director.dynamic,
         deals: this.dealLog.map(function (d) {
-          return { phase: d.phase, difficulty: d.difficulty, fits: d.fits };
+          return { phase: d.phase, stage: d.stage, difficulty: d.difficulty, fits: d.fits, big: d.big, moves: d.moves, lines: d.maxLines };
         }),
         phaseEntries: this.director.entries,
         phaseGroups: this.director.groups
@@ -873,7 +845,7 @@
       const tiers = this.cfg.relic.tiers;
       if (!this.relicMode) return;
       if (this.tierIndex < tiers.length) this.score = Math.max(this.score, tiers[this.tierIndex]);
-      else if (this.mode === 'relic') this.score = Math.max(this.score, this.rewardScoreAt(this.rewardIndex));
+      else if (this.mode === 'relic') this.score = Math.max(this.score, this.rewardAt(this.rewardIndex).score);
       this._checkTiers();
     }
 

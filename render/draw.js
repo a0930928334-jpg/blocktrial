@@ -178,14 +178,7 @@
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     ctx.beginPath();
-    if (id === 'bomb') {
-      ctx.arc(x - s * 0.04, y + s * 0.08, s * 0.25, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.beginPath();
-      ctx.moveTo(x + s * 0.12, y - s * 0.1);
-      ctx.quadraticCurveTo(x + s * 0.18, y - s * 0.3, x + s * 0.32, y - s * 0.3);
-      ctx.stroke();
-    } else if (id === 'swap') {
+    if (id === 'swap') {
       // 上下两个方向相反的箭头
       [[-0.16, 1], [0.16, -1]].forEach(function (a) {
         const ay = y + s * a[0];

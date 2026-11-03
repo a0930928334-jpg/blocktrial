@@ -176,10 +176,12 @@
   // ---------- 互相挤占 ----------
 
   // 放下一块后，另外几块平均少掉多大比例的位置。每块抽样几个位置，算上消线腾出的空间。
+  // 同时统计放下一块后，另一块一个位置都没有的比例（blocking）。
   function interference(rows, shapes, moves, n, samples) {
     const next = stackAt(0, n);
     let sum = 0;
     let pairs = 0;
+    let blocked = 0;
     for (let i = 0; i < shapes.length; i++) {
       if (moves[i] === 0) continue;
       const stride = Math.max(1, Math.floor(moves[i] / samples));
@@ -191,13 +193,15 @@
           applyMove(rows, next, shapes[i], r, c, n);
           for (let j = 0; j < shapes.length; j++) {
             if (j === i || moves[j] === 0) continue;
-            sum += Math.max(0, 1 - countMoves(next, shapes[j], n) / moves[j]);
+            const left = countMoves(next, shapes[j], n);
+            sum += Math.max(0, 1 - left / moves[j]);
+            if (left === 0) blocked++;
             pairs++;
           }
         }
       }
     }
-    return pairs ? sum / pairs : 0;
+    return { interference: pairs ? sum / pairs : 0, blocking: pairs ? blocked / pairs : 0 };
   }
 
   // ---------- 评估一组牌 ----------
@@ -229,6 +233,7 @@
     }
     if (budget) budget.left -= st.nodes;
 
+    const crowding = interference(rows, shapes, moves, n, d.interferenceSamples);
     const metrics = {
       moves: moves,
       fits: fitCount,
@@ -236,7 +241,8 @@
       solvable: solvable,
       maxLines: maxLines,
       cells: cells,
-      interference: interference(rows, shapes, moves, n, d.interferenceSamples)
+      interference: crowding.interference,
+      blocking: crowding.blocking
     };
     metrics.difficulty = Math.max(0, Math.min(100, Math.round(d.difficulty(metrics))));
     return metrics;
@@ -254,25 +260,26 @@
     return cfg.dealer.normal[mode] || cfg.dealer.normal.relic;
   }
 
-  // 平常期此刻的选牌范围，随阶段变难，曲线按模式区分
+  // 平常期此刻的选牌范围，随阶段变难，到 capStage 封顶，曲线按模式区分
   function normalBand(stage, cfg, mode) {
-    const center = BG.Generator.interpolate(normalCurve(mode, cfg).center, stage);
+    const curve = normalCurve(mode, cfg);
+    const center = BG.Generator.interpolate(curve.center, Math.min(stage, curve.capStage));
     const half = cfg.dealer.normal.halfWidth;
     return [Math.max(0, center - half), Math.min(1, center + half)];
   }
 
-  // 平常期大方块进入候选的权重倍率
-  function normalBigMult(stage, cfg, mode) {
-    return BG.Generator.interpolate(normalCurve(mode, cfg).bigMult, stage);
+  // 中等别扭形状的权重倍率
+  function normalAwkwardMult(stage, cfg, mode) {
+    const curve = normalCurve(mode, cfg);
+    return BG.Generator.interpolate(curve.awkwardMult, Math.min(stage, curve.capStage));
   }
 
-  // 平常期小方块（generator.smallCells 格以内）进入候选的权重倍率，没写曲线的模式不变
-  function normalSmallMult(stage, cfg, mode) {
-    const curve = normalCurve(mode, cfg).smallMult;
-    return curve ? BG.Generator.interpolate(curve, stage) : 1;
+  // 进入这个阶段时难度还会不会上升。到上限之后，横幅就不能再说"难度提升"
+  function stageRaises(stage, cfg, mode) {
+    return stage <= normalCurve(mode, cfg).capStage;
   }
 
-  // 3 块都要有位置的规则是否适用：平常期后段、冲刺期、考验期、复活缓冲期
+  // 统计和 S/Z 后期上限用的"后期"：平常期后段、冲刺期、考验期、复活缓冲期
   function isLate(phase, placements, cfg, mode) {
     if (phase === 'sprint' || phase === 'trial' || phase === 'buffer') return true;
     return phase === 'normal' && placements >= cfg.dealer.lateFromStep[mode];
@@ -282,47 +289,24 @@
     return x.metrics.solvable === true && x.metrics.fits === x.metrics.count;
   }
 
-  // candidates：[{ pieces, metrics }]。返回选中的候选，没有合适的返回 null。
-  // 后期规则下优先从 3 块都有位置的候选里选，一个都没有时才退到原来的范围。
-  function select(phase, candidates, rng, cfg, placements, mode, stage) {
+  // candidates：[{ pieces, metrics }]。只从 3 块都能放、有解的组里选，一个都没有时返回 null，由调用方发保底的小方块。
+  function select(phase, candidates, rng, cfg, mode, stage) {
     const d = cfg.dealer;
-    if (isLate(phase, placements, cfg, mode) && candidates.some(fullFit)) {
-      candidates = candidates.filter(fullFit);
-    }
-    const byDifficulty = function (list) {
-      return list.slice().sort(function (a, b) { return a.metrics.difficulty - b.metrics.difficulty; });
-    };
-    const solvable = byDifficulty(candidates.filter(function (x) { return x.metrics.solvable === true; }));
-    const placeable = byDifficulty(candidates.filter(function (x) { return x.metrics.fits > 0; }));
-
+    const pool = candidates.filter(fullFit).sort(function (a, b) { return a.metrics.difficulty - b.metrics.difficulty; });
+    if (pool.length === 0) return null;
     // 复活缓冲按热身期规则选牌
-    if (phase === 'warmup' || phase === 'buffer') {
-      const pool = solvable.filter(function (x) { return x.metrics.fits === x.metrics.count; });
-      if (pool.length === 0) return null;
-      return pickFromBand(pool, [0, d.warmupRatio], rng);
-    }
-    if (phase === 'trial') {
-      return solvable.length ? pickFromBand(solvable, d.trial.band, rng) : null;
-    }
-    if (phase === 'sprint') {
-      return solvable.length ? solvable[solvable.length - 1] : null;
-    }
+    if (phase === 'warmup' || phase === 'buffer') return pickFromBand(pool, [0, d.warmupRatio], rng);
+    if (phase === 'trial') return pickFromBand(pool, d.trial.band, rng);
+    if (phase === 'sprint') return pool[pool.length - 1];
     if (phase === 'bonus') {
-      // 优先选有解又能消的组，奖励不能变成陷阱
-      const mostLines = function (list) {
-        let best = null;
-        list.forEach(function (x) {
-          if (!best || x.metrics.maxLines > best.metrics.maxLines) best = x;
-        });
-        return best;
-      };
-      const safe = mostLines(solvable);
-      if (safe && safe.metrics.maxLines > 0) return safe;
-      return mostLines(placeable);
+      // pool 已按难度从低到高排好：能消够线的组里最好放的；都不够时取能消最多的
+      let best = pool[0];
+      for (let i = 0; i < pool.length && best.metrics.maxLines < d.bonus.minLines; i++) {
+        if (pool[i].metrics.maxLines > best.metrics.maxLines) best = pool[i];
+      }
+      return best;
     }
-    // 难但有解：候选里有能全部放下的组时，不发放不完的组
-    const pool = solvable.length ? solvable : placeable;
-    return pool.length ? pickFromBand(pool, normalBand(stage, cfg, mode), rng) : null;
+    return pickFromBand(pool, normalBand(stage, cfg, mode), rng);
   }
 
   // ---------- 阶段状态 ----------
@@ -337,9 +321,8 @@
       this.best = opts.best;
       this.trialLeft = 0;
       this.bonusLeft = 0;
-      this.sprintLeft = 0;
-      this.sprintUsed = 0;
-      this.sprintCooldown = 0;
+      this.sprintKey = null;
+      this.sprintGroups = 0;
       this.current = null;
       this.entries = {};
       this.groups = {};
@@ -349,28 +332,34 @@
       if (!this.daily) this.dynamic = value;
     }
 
-    onScore(prev, score) {
-      if (!this.dynamic) return;
-      const every = this.cfg.dealer.bonus.thousandEvery;
-      const brokeBest = this.best > 0 && prev <= this.best && score > this.best;
-      const passedThousand = Math.floor(score / every) > Math.floor(prev / every);
-      if (brokeBest || passedThousand) this.bonusLeft = this.cfg.dealer.bonus.groups;
+    // 关键分：每档遗物阶梯、每个分数台阶、个人最高分。返回比 score 高的最近一个
+    nextKey(score) {
+      const step = this.cfg.milestone.scoreStep;
+      let key = (Math.floor(score / step) + 1) * step;
+      if (this.mode === 'relic') {
+        this.cfg.relic.tiers.forEach(function (t) { if (t > score && t < key) key = t; });
+      }
+      if (this.best > score && this.best < key) key = this.best;
+      return key;
     }
 
-    onTier() {
-      if (this.dynamic) this.bonusLeft = Math.max(this.bonusLeft, this.cfg.dealer.bonus.afterTier);
+    // 分数距下一个关键分不到 keyRatio
+    inSprintWindow(score) {
+      return score >= this.nextKey(score) * (1 - this.cfg.dealer.sprint.keyRatio);
+    }
+
+    onScore(prev, score) {
+      if (!this.dynamic) return;
+      const b = this.cfg.dealer.bonus;
+      if (this.best > 0 && prev <= this.best && score > this.best) {
+        this.bonusLeft = Math.max(this.bonusLeft, b.afterRecord);
+      } else if (score >= this.nextKey(prev)) {
+        this.bonusLeft = Math.max(this.bonusLeft, b.afterTier);
+      }
     }
 
     onRelicPicked(groups) {
       if (this.dynamic) this.trialLeft = groups;
-    }
-
-    _inSprintWindow(score) {
-      const s = this.cfg.dealer.sprint;
-      if (this.best > 0) return score >= this.best * s.bestRatio && score <= this.best;
-      if (this.mode !== 'classic') return false;
-      const into = score % s.noBestEvery;
-      return score > 0 && into >= s.noBestEvery * s.noBestRatio;
     }
 
     _decide(placements, score, buffer) {
@@ -383,26 +372,25 @@
         this.bonusLeft = 0;
         return 'warmup';
       }
-      if (this.trialLeft > 0) {
-        this.trialLeft--;
-        return 'trial';
-      }
+      // 先给奖励期，再考验新遗物：刚冲过关键分要先松一口气
       if (this.bonusLeft > 0) {
         this.bonusLeft--;
         return 'bonus';
       }
-      if (this.sprintLeft > 0 && this._inSprintWindow(score)) {
-        this.sprintLeft--;
-        return 'sprint';
+      if (this.trialLeft > 0) {
+        this.trialLeft--;
+        return 'trial';
       }
-      this.sprintLeft = 0;
-      if (this.sprintCooldown > 0) {
-        this.sprintCooldown--;
-      } else if (this.sprintUsed < d.sprint.maxTriggers && this._inSprintWindow(score)) {
-        this.sprintUsed++;
-        this.sprintLeft = d.sprint.maxGroups - 1;
-        this.sprintCooldown = d.sprint.cooldownGroups;
-        return 'sprint';
+      if (this.inSprintWindow(score)) {
+        const key = this.nextKey(score);
+        if (key !== this.sprintKey) {
+          this.sprintKey = key;
+          this.sprintGroups = 0;
+        }
+        if (this.sprintGroups < d.sprint.maxGroups) {
+          this.sprintGroups++;
+          return 'sprint';
+        }
       }
       return 'normal';
     }
@@ -419,7 +407,7 @@
 
   BG.Dealer = {
     evaluate: evaluate, select: select, isLate: isLate, fullFit: fullFit,
-    normalBand: normalBand, normalBigMult: normalBigMult, normalSmallMult: normalSmallMult, boardRows: boardRows
+    normalBand: normalBand, normalAwkwardMult: normalAwkwardMult, stageRaises: stageRaises, boardRows: boardRows
   };
   BG.DealDirector = DealDirector;
 })();

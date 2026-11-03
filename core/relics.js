@@ -59,10 +59,9 @@
 
   BG.Relics = { list: list, byId: byId, poolFor: poolFor };
 
-  // 遗物模式最后一档之后的分数奖励。offer 是三选一上的一句话
+  // 遗物模式最后一档之后的分数奖励。toast 是到达时顶部的提示
   BG.Rewards = {
-    bomb: { name: '炸弹', offer: '炸弹 1 颗' },
-    swap: { name: '换一组', offer: '免费换一组 1 次' },
-    revive: { name: '复活', offer: '免费复活 1 次' }
+    swap: { name: '换一组', toast: '免费换一组 ×1' },
+    revive: { name: '复活', toast: '免费复活 ×1' }
   };
 })();

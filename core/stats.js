@@ -77,7 +77,7 @@
   }
 
   function rewardCounts(map) {
-    return ['bomb', 'swap', 'revive'].map(function (id) { return (map && map[id]) || 0; });
+    return ['swap', 'revive'].map(function (id) { return (map && map[id]) || 0; });
   }
 
   // 精简版的一局记录，键名含义见 README
@@ -105,9 +105,12 @@
       deal: summarizeDeals(r.deals),
       ms: r.milestones || [],
       stage: r.stage === undefined ? null : r.stage,
-      rlx: r.relaxedDeals || 0
+      rlx: r.relaxedDeals || 0,
+      spr: r.sprintEntries || 0,
+      bon: r.bonusEntries || 0,
+      sd: r.diedInSprint ? 1 : 0
     };
-    // 奖励 [炸弹, 换一组, 复活]，没有奖励的局不写这两个键
+    // 奖励 [换一组, 复活]，没有奖励的局不写这两个键
     if (Object.keys(r.rewardsGained || {}).length > 0) {
       out.rw = rewardCounts(r.rewardsGained);
       out.rwu = rewardCounts(r.rewardsUsed);
