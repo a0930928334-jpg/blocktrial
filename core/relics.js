@@ -1,0 +1,61 @@
+// 遗物定义。计分效果在 scoring.js，其余效果在 game.js 和 generator.js。
+// type：score 加分型，item 道具型。name 2～3 字，short 不超过 10 字。
+(function () {
+  'use strict';
+
+  const rc = function () { return BG.Config.relic; };
+
+  const list = [
+    {
+      id: 'crossCut', type: 'score', name: '十字斩',
+      short: function () { return '横竖同消 +' + rc().crossBonus; },
+      trigger: function () { return '十字斩 +' + rc().crossBonus; }
+    },
+    {
+      id: 'edge', type: 'score', name: '边线',
+      short: function () { return '消边线 分×' + rc().edgeMult; },
+      trigger: function () { return '边线 ×' + rc().edgeMult; }
+    },
+    {
+      id: 'bigClear', type: 'score', name: '大消除',
+      short: function () { return '消' + rc().bigClearMinLines + '线+ 分×' + rc().bigClearMult; },
+      trigger: function () { return '大消除 ×' + rc().bigClearMult; }
+    },
+    {
+      id: 'comboUp', type: 'score', name: '连击',
+      short: function () { return '连击加成 ×' + rc().comboBonusMult; },
+      trigger: function () { return '连击 ×' + rc().comboBonusMult; }
+    },
+    {
+      id: 'clearBoard', type: 'score', name: '清盘',
+      short: function () { return '清空棋盘 +' + rc().clearBoardBonus; },
+      trigger: function () { return '清盘 +' + rc().clearBoardBonus; }
+    },
+    {
+      id: 'timeBomb', type: 'item', name: '炸弹',
+      short: function () { return '消' + rc().bombEvery + '次 得炸弹'; },
+      trigger: function () { return '炸弹 +1'; }
+    },
+    {
+      id: 'holdSlot', type: 'item', name: '暂存',
+      short: function () { return '多一个暂存位'; },
+      trigger: function () { return '暂存'; }
+    },
+    {
+      // 会改变发牌，每日挑战的序列要对所有人相同，所以不进每日候选池
+      id: 'smallPiece', type: 'item', name: '小块', dailyExcluded: true,
+      short: function () { return '每组必有小方块'; },
+      trigger: function () { return '小块 +1'; }
+    }
+  ];
+
+  const byId = {};
+  list.forEach(function (r) { byId[r.id] = r; });
+
+  function poolFor(fixedSequence) {
+    return list.filter(function (r) { return !(fixedSequence && r.dailyExcluded); })
+      .map(function (r) { return r.id; });
+  }
+
+  BG.Relics = { list: list, byId: byId, poolFor: poolFor };
+})();
