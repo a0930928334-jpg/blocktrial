@@ -31,10 +31,12 @@
       const out = {};
       if (this.fixed) {
         const step = ctx.groupIndex * this.cfg.board.traySize;
-        const hard = interpolate(g.dailyHardCurve, step);
+        const awkward = interpolate(g.dailyAwkwardCurve, step);
         BG.Shapes.list.forEach(function (shape) {
-          const w = g.sz.ids.indexOf(shape.id) !== -1 ? 0 : (g.shapeWeights[shape.id] || 0);
-          out[shape.id] = g.dailyHardShapes.indexOf(shape.id) !== -1 ? w * hard : w;
+          let w = g.sz.ids.indexOf(shape.id) !== -1 ? 0 : (g.shapeWeights[shape.id] || 0);
+          if (shape.count >= g.bigCells) w *= g.dailyBigMult;
+          if (g.awkwardShapes.indexOf(shape.id) !== -1) w *= awkward;
+          out[shape.id] = w;
         });
         return out;
       }
@@ -109,14 +111,24 @@
       return pieces;
     }
 
-    // 每日挑战：试几次，取总格数最接近这一步目标的一组。只看组号，不看棋盘
+    // 每日挑战：大方块按第 0 组的权重先定下来，占比不随步数变。其他位置试几次，
+    // 取总格数最接近当前权重平均值的一组。只看组号，不看棋盘
     _rollDaily(rng, weights, count, ctx) {
       const g = this.cfg.generator;
-      const target = interpolate(g.dailyCells, ctx.groupIndex * this.cfg.board.traySize);
+      const plan = this.bigPlan(rng, this.weights({ groupIndex: 0 }), count);
+      const rest = this.withoutBig(weights);
+      let sum = 0;
+      let cellSum = 0;
+      BG.Shapes.list.forEach(function (s) {
+        sum += rest[s.id];
+        cellSum += rest[s.id] * s.count;
+      });
+      let target = 0;
+      plan.forEach(function (p) { target += p ? p.shape.count : cellSum / sum; });
       let best = null;
       let bestGap = Infinity;
       for (let i = 0; i < g.dailyCellsTries; i++) {
-        const pieces = this.rollGroup(rng, weights, count);
+        const pieces = this.rollGroup(rng, rest, count, plan);
         const cells = pieces.reduce(function (sum, p) { return sum + p.shape.count; }, 0);
         const gap = Math.abs(cells - target);
         if (gap < bestGap) {
