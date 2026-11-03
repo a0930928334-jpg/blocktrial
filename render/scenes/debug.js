@@ -7,7 +7,7 @@
   const Kit = BG.UIKit;
 
   const PHASES = {
-    warmup: '热身', normal: '平常', sprint: '冲刺', trial: '考验', bonus: '奖励', daily: '每日固定', off: '已关闭'
+    warmup: '热身', buffer: '复活缓冲', normal: '平常', sprint: '冲刺', trial: '考验', bonus: '奖励', daily: '每日固定', off: '已关闭'
   };
 
   class DebugScene {

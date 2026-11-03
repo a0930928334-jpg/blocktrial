@@ -39,6 +39,16 @@
       return true;
     }
 
+    countPlacements(shape) {
+      let count = 0;
+      for (let r = 0; r <= this.size - shape.h; r++) {
+        for (let c = 0; c <= this.size - shape.w; c++) {
+          if (this.canPlace(shape, r, c)) count++;
+        }
+      }
+      return count;
+    }
+
     hasPlacement(shape) {
       for (let r = 0; r <= this.size - shape.h; r++) {
         for (let c = 0; c <= this.size - shape.w; c++) {

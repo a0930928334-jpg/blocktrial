@@ -72,6 +72,10 @@
       this.relaxedDeals = 0;
       this.piecesDealt = 0;
       this.szDealt = 0;
+      this.lateDealt = 0;
+      this.lateSzDealt = 0;
+      this.lastSzGroup = -1000;
+      this.bufferLeft = 0;
       this.oneDealt = 0;
 
       this.groupIndex = 0;
@@ -100,27 +104,56 @@
         groupIndex: this.groupIndex,
         has: this._hasFn(),
         placements: this.placements,
-        szAllowed: (this.szDealt + 1) / (this.piecesDealt + count) <= g.sz.maxRatio,
+        szAllowed: this._szAllowed(false),
+        szBoard: this.board,
         // 开局一块都没发过时比例没有意义，不能因此挡掉第一个 1×1
         oneAllowed: this.oneDealt === 0 || (this.oneDealt + 1) / (this.piecesDealt + count) <= g.oneMaxRatio
       };
     }
 
-    // 后期规则：只发现在放得下的形状，棋盘太挤时不发大方块
-    _lateCtx() {
+    // S/Z 这一组能不能出现：两次之间要隔够组数，比例不超过上限
+    _szAllowed(late) {
+      const sz = this.cfg.generator.sz;
+      const count = this.cfg.board.traySize;
+      if (this.groupIndex - this.lastSzGroup < sz.minGapGroups) return false;
+      if ((this.szDealt + 1) / (this.piecesDealt + count) > sz.maxRatio) return false;
+      return !late || (this.lateSzDealt + 1) / (this.lateDealt + count) <= sz.lateMaxRatio;
+    }
+
+    // 这一阶段的发牌条件。后期规则只发现在放得下的形状，棋盘太挤或复活缓冲时不发大方块
+    _dealCtx(phase) {
+      const late = BG.Dealer.isLate(phase, this.placements, this.cfg, this.mode);
       const ctx = this._ctx();
-      ctx.board = this.board;
-      ctx.bigAllowed = this.board.emptyCount() >= this.cfg.dealer.bigMinEmpty;
+      if (late) {
+        ctx.szAllowed = this._szAllowed(true);
+        ctx.board = this.board;
+        ctx.bigAllowed = phase !== 'buffer' && this.board.emptyCount() >= this.cfg.dealer.bigMinEmpty;
+      }
+      if (phase === 'warmup' || phase === 'bonus' || phase === 'buffer') ctx.szAllowed = false;
       return ctx;
     }
 
+    // 复活缓冲：不看棋盘的发牌（每日挑战、关闭动态发牌）按固定的表替换，同一组所有人结果相同
+    _applyBufferSwap() {
+      const swap = this.cfg.ads.revive.swap;
+      this.tray.forEach(function (p, i) {
+        if (p && swap[p.shape.id]) this.tray[i] = { shape: BG.Shapes.byId[swap[p.shape.id]], color: p.color };
+      }, this);
+    }
+
     // 统计已发方块，给 S/Z 和 1×1 的比例上限用
-    _countDealt() {
+    _countDealt(late) {
       const szIds = this.cfg.generator.sz.ids;
       this.tray.forEach(function (p) {
         if (!p || p.gift) return;
+        const isSz = szIds.indexOf(p.shape.id) !== -1;
         this.piecesDealt++;
-        if (szIds.indexOf(p.shape.id) !== -1) this.szDealt++;
+        if (late) this.lateDealt++;
+        if (isSz) {
+          this.szDealt++;
+          if (late) this.lateSzDealt++;
+          this.lastSzGroup = this.groupIndex;
+        }
         if (p.shape.id === '1x1') this.oneDealt++;
       }, this);
     }
@@ -151,22 +184,25 @@
     // ---------- 发牌 ----------
 
     _deal() {
-      const phase = this.director.next(this.placements, this.score);
+      const buffer = this.bufferLeft > 0;
+      if (buffer) this.bufferLeft--;
+      const phase = this.director.next(this.placements, this.score, buffer);
       const count = this.cfg.board.traySize;
       let picked = null;
       if (phase !== 'daily' && phase !== 'off') picked = this._pickDynamic(phase, count);
       if (picked) {
         this.tray = picked.pieces;
       } else {
-        const needSafe = phase === 'warmup' || phase === 'trial' || phase === 'sprint';
+        const needSafe = phase === 'warmup' || phase === 'trial' || phase === 'sprint' || phase === 'buffer';
         this.tray = needSafe
           ? this.gen.drawSmallGuaranteed(this.board, count, this.cfg.dealer.fallbackMaxCells, this.groupIndex)
-          : this.gen.draw(this.board, count, 'group', this.groupIndex, this._ctx());
+          : this.gen.draw(this.board, count, 'group', this.groupIndex, this._dealCtx(phase));
       }
-      this._countDealt();
+      if (buffer) this._applyBufferSwap();
       const gifted = this._tickSmallPiece();
-      const metrics = picked && !gifted ? picked.metrics : BG.Dealer.evaluate(this.board, this.tray, this.cfg);
       const late = BG.Dealer.isLate(phase, this.placements, this.cfg, this.mode);
+      this._countDealt(late);
+      const metrics = picked && !gifted && !buffer ? picked.metrics : BG.Dealer.evaluate(this.board, this.tray, this.cfg);
       const relaxed = late && metrics.fits < metrics.count;
       if (relaxed) this.relaxedDeals++;
       this.currentDeal = {
@@ -175,7 +211,8 @@
         fits: metrics.fits,
         solvable: metrics.solvable,
         maxLines: metrics.maxLines,
-        relaxed: relaxed
+        relaxed: relaxed,
+        buffer: buffer
       };
       this.dealLog.push(Object.assign({}, this.currentDeal));
       this.groupIndex++;
@@ -208,7 +245,7 @@
     _pickDynamic(phase, count) {
       const d = this.cfg.dealer;
       const late = BG.Dealer.isLate(phase, this.placements, this.cfg, this.mode);
-      const ctx = late ? this._lateCtx() : this._ctx();
+      const ctx = this._dealCtx(phase);
       if (phase === 'normal') ctx.bigMult = BG.Dealer.normalBigMult(this.placements, this.cfg, this.mode);
       const budget = { left: d.dealNodeBudget };
       const candidates = [];
@@ -264,8 +301,12 @@
       const normal = this.tray.filter(function (p) { return p && !p.gift; }).length;
       const count = normal > 0 ? normal : gifts.length;
       this.rerollNo++;
-      const late = BG.Dealer.isLate(this.currentDeal.phase, this.placements, this.cfg, this.mode);
-      this.tray = this.gen.draw(this.board, count, 'reroll', this.groupIndex + ':' + this.rerollNo, late ? this._lateCtx() : this._ctx());
+      // 缓冲期里换牌（包括刚复活、缓冲还没开始用的那一组）也要守缓冲的规矩。换一组不发 S/Z
+      const buffer = this.currentDeal.buffer || this.bufferLeft > 0;
+      const ctx = this._dealCtx(buffer && this.director.dynamic ? 'buffer' : this.currentDeal.phase);
+      ctx.szAllowed = false;
+      this.tray = this.gen.draw(this.board, count, 'reroll', this.groupIndex + ':' + this.rerollNo, ctx);
+      if (buffer) this._applyBufferSwap();
       if (normal > 0) this.tray = this.tray.concat(gifts);
       const metrics = BG.Dealer.evaluate(this.board, this.tray, this.cfg);
       this.currentDeal.solvable = metrics.solvable;
@@ -630,11 +671,12 @@
     // 清完之后是否真的能放下，界面用它决定要不要置灰
     reviveClearWorks() {
       const test = this.board.clone();
-      const radius = this.cfg.ads.revive.areaRadius;
-      const center = test.densestCenter(radius);
-      test.clearArea(center.r, center.c, radius);
+      const revive = this.cfg.ads.revive;
+      const center = test.densestCenter(revive.areaRadius);
+      test.clearArea(center.r, center.c, revive.areaRadius);
+      // 复活时手里的大方块会被替换，要按替换后的形状判断
       return this.tray.concat([this.hold]).filter(Boolean).some(function (p) {
-        return test.hasPlacement(p.shape);
+        return test.hasPlacement(BG.Shapes.byId[revive.swap[p.shape.id] || p.shape.id]);
       });
     }
 
@@ -644,6 +686,9 @@
       this._noteStuckChoice('revive');
       this.revivesUsed++;
       this.revivePhase = this.currentDeal.phase;
+      this.bufferLeft = this.cfg.ads.revive.bufferGroups;
+      // 手里剩的大方块也换掉，否则放完一块就又卡死，下一组缓冲的牌都等不到
+      this._applyBufferSwap();
       this.placementsAtRevive = this.placements;
       const radius = this.cfg.ads.revive.areaRadius;
       const center = this.board.densestCenter(radius);

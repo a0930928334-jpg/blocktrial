@@ -95,6 +95,7 @@
       type: r.endType === undefined ? null : r.endType,
       ph: r.endPhase === undefined ? null : r.endPhase,
       rev: r.revived ? 1 : 0,
+      rs: r.placementsAfterRevive === undefined ? null : r.placementsAfterRevive,
       stuck: compactChoices(r.stuckChoices),
       ads: [sumMap(ads.triggered), sumMap(ads.completed), sumMap(ads.abandoned)],
       deal: summarizeDeals(r.deals),

@@ -266,9 +266,9 @@
     return BG.Generator.interpolate(normalCurve(mode, cfg).bigMult, placements);
   }
 
-  // 后期规则是否适用：平常期后段、冲刺期、考验期
+  // 3 块都要有位置的规则是否适用：平常期后段、冲刺期、考验期、复活缓冲期
   function isLate(phase, placements, cfg, mode) {
-    if (phase === 'sprint' || phase === 'trial') return true;
+    if (phase === 'sprint' || phase === 'trial' || phase === 'buffer') return true;
     return phase === 'normal' && placements >= cfg.dealer.lateFromStep[mode];
   }
 
@@ -289,7 +289,8 @@
     const solvable = byDifficulty(candidates.filter(function (x) { return x.metrics.solvable === true; }));
     const placeable = byDifficulty(candidates.filter(function (x) { return x.metrics.fits > 0; }));
 
-    if (phase === 'warmup') {
+    // 复活缓冲按热身期规则选牌
+    if (phase === 'warmup' || phase === 'buffer') {
       const pool = solvable.filter(function (x) { return x.metrics.fits === x.metrics.count; });
       if (pool.length === 0) return null;
       return pickFromBand(pool, [0, d.warmupRatio], rng);
@@ -366,9 +367,10 @@
       return score > 0 && into >= s.noBestEvery * s.noBestRatio;
     }
 
-    _decide(placements, score) {
+    _decide(placements, score, buffer) {
       if (this.daily) return 'daily';
       if (!this.dynamic) return 'off';
+      if (buffer) return 'buffer';
       const d = this.cfg.dealer;
       if (placements < d.warmupSteps) {
         this.trialLeft = 0;
@@ -400,8 +402,8 @@
     }
 
     // 决定下一组牌的阶段，并记录触发次数
-    next(placements, score) {
-      const phase = this._decide(placements, score);
+    next(placements, score, buffer) {
+      const phase = this._decide(placements, score, buffer);
       this.groups[phase] = (this.groups[phase] || 0) + 1;
       if (phase !== this.current) this.entries[phase] = (this.entries[phase] || 0) + 1;
       this.current = phase;

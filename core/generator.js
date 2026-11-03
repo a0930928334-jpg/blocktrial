@@ -22,8 +22,9 @@
       this.cfg = cfg;
     }
 
-    // ctx: { score, groupIndex, has(id), bigMult?, placements, szAllowed, oneAllowed, board?, bigAllowed? }
-    // board 只在后期规则下传入：放不下的形状权重为 0。返回 { 形状id: 权重 }
+    // ctx: { score, groupIndex, has(id), bigMult?, placements, szAllowed, szBoard?, oneAllowed, board?, bigAllowed? }
+    // board 只在后期规则下传入：放不下的形状权重为 0。szBoard：S/Z 合法位置太少时权重为 0。
+    // 返回 { 形状id: 权重 }
     weights(ctx) {
       const g = this.cfg.generator;
       const out = {};
@@ -41,7 +42,10 @@
       BG.Shapes.list.forEach(function (shape) {
         let w = g.shapeWeights[shape.id] || 0;
         if (shape.count >= g.bigCells) w = ctx.bigAllowed === false ? 0 : w * boost;
-        if (g.sz.ids.indexOf(shape.id) !== -1) w *= sz;
+        if (g.sz.ids.indexOf(shape.id) !== -1) {
+          w *= sz;
+          if (w > 0 && ctx.szBoard && ctx.szBoard.countPlacements(shape) < g.sz.minMoves) w = 0;
+        }
         if (shape.id === '1x1' && ctx.oneAllowed === false) w = 0;
         if (ctx.board && !ctx.board.hasPlacement(shape)) w = 0;
         out[shape.id] = w;
@@ -100,6 +104,20 @@
       return best;
     }
 
+    // 每日挑战：这一组有没有 S/Z 只看组号和种子，所有人相同
+    dailySzGroup(groupIndex) {
+      const sz = this.cfg.generator.sz;
+      return groupIndex >= sz.dailyFromGroup && (groupIndex + this.seed) % sz.dailyEvery === 0;
+    }
+
+    // 把这一组的一块固定换成 S/Z，位置和形状也只看组号
+    _injectDailySz(pieces, groupIndex) {
+      const ids = this.cfg.generator.sz.ids;
+      const rng = new BG.RNG(BG.RNG.derive(this.seed, 'dailySz', groupIndex));
+      const slot = rng.int(pieces.length);
+      pieces[slot] = { shape: BG.Shapes.byId[ids[rng.int(ids.length)]], color: pieces[slot].color };
+    }
+
     // 小块遗物换入的 1×1
     giftPiece(index) {
       const rng = new BG.RNG(BG.RNG.derive(this.seed, 'gift', index));
@@ -114,6 +132,7 @@
         const rng = new BG.RNG(BG.RNG.derive(this.seed, tag, index, attempt));
         const daily = this.fixed && count === this.cfg.board.traySize;
         pieces = daily ? this._rollDaily(rng, weights, count, ctx) : this.rollGroup(rng, weights, count);
+        if (daily && tag === 'group' && this.dailySzGroup(ctx.groupIndex)) this._injectDailySz(pieces, ctx.groupIndex);
         if (pieces.some(function (p) { return board.hasPlacement(p.shape); })) return pieces;
       }
       // 满线都会被消除，棋盘不会全满，所以 1×1 一定放得下
