@@ -121,6 +121,10 @@
         BG.TextInput.close();
         return;
       }
+      if (BG.Platform.shareOverlayActive()) {
+        BG.Platform.closeShareOverlay();
+        return;
+      }
       const top = this.top();
       if (top.back) top.back();
     },

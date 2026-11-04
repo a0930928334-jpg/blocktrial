@@ -1,2 +1,2 @@
 // 版本号和构建时间，由 tools/bump-version.js 更新，不要手改。
-BG.Version = { name: '0.1.19', build: '11-04 23:13' };
+BG.Version = { name: '0.1.20', build: '11-04 23:47' };

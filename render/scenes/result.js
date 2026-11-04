@@ -17,6 +17,9 @@
       this.ui = new BG.UI();
       this.celebrate = new BG.Celebration(BG.Config.anim.celebrate);
       this.afterEffects = null;
+      this.sharePreview = false;
+      this.shareCanvas = null;
+      this.shareRecord = null;
       this.fly = info.coins > 0 ? new BG.CoinFly({ amount: info.coins }) : null;
       if (info.rankUp) {
         const s = BG.Screen;
@@ -40,6 +43,7 @@
     }
 
     draw(ctx, screen) {
+      const self = this;
       const g = this.game;
       const ui = this.ui;
       ui.begin();
@@ -129,7 +133,16 @@
         onTap: function () { BG.App.restartGame(g); }
       });
       y += againH + 10;
-      ui.button(ctx, 'menu', x, y, w, 44, '返回菜单', {
+      const smallW = (w - 10) / 2;
+      ui.button(ctx, 'share', x, y, smallW, 44, '成绩图', {
+        size: 16, bold: true,
+        onTap: function () {
+          const open = function () { self.showSharePreview(); };
+          if (self.effectsPlaying()) self.afterEffects = open;
+          else open();
+        }
+      });
+      ui.button(ctx, 'menu', x + smallW + 10, y, smallW, 44, '返回菜单', {
         size: 16, bold: false,
         onTap: function () { BG.App.toMenu(); }
       });
@@ -138,6 +151,50 @@
       if (this.celebrate.banner) {
         this.celebrate.drawBanner(ctx, { x: x, y: safe.top + 4, w: w, h: 56 });
       }
+      if (this.sharePreview) this._drawSharePreview(ctx, screen);
+    }
+
+    // 第一次点开时画一次，之后只贴这张图。段位和结算页显示的相同，双人局没有段位
+    showSharePreview() {
+      if (!this.shareCanvas) {
+        const S = BG.ShareCard;
+        const g = this.game;
+        this.shareRecord = Object.assign({}, g.record(), {
+          best: this.info.best,
+          isRecord: this.info.isRecord,
+          rank: g.duo ? null : this.info.rank,
+          board: g.board.cells.slice()
+        });
+        this.shareCanvas = BG.Platform.createCanvas(S.WIDTH, S.HEIGHT);
+        S.drawShareCard(this.shareCanvas.getContext('2d'), S.WIDTH, S.HEIGHT, this.shareRecord);
+      }
+      this.sharePreview = true;
+    }
+
+    _drawSharePreview(ctx, screen) {
+      const safe = screen.safe;
+      const maxW = screen.width - safe.left - safe.right - 28;
+      const maxH = screen.height - safe.top - safe.bottom - 66;
+      const S = BG.ShareCard;
+      const scale = Math.min(maxW / S.WIDTH, maxH / S.HEIGHT);
+      const w = S.WIDTH * scale;
+      const h = S.HEIGHT * scale;
+      const x = safe.left + (screen.width - safe.left - safe.right - w) / 2;
+      const y = safe.top + 56;
+      const self = this;
+      ctx.fillStyle = 'rgba(5, 7, 10, 0.88)';
+      ctx.fillRect(0, 0, screen.width, screen.height);
+      ctx.drawImage(this.shareCanvas, x, y, w, h);
+      // 盖在结算页上，下面的按钮点不到
+      this.ui.begin();
+      this.ui.button(ctx, 'shareClose', x, safe.top + 6, 92, 44, '关闭', {
+        size: 16,
+        onTap: function () { self.sharePreview = false; }
+      });
+      this.ui.button(ctx, 'shareSave', x + w - 92, safe.top + 6, 92, 44, '保存', {
+        style: 'gold', size: 16,
+        onTap: function () { BG.Platform.saveShareImage(self.shareCanvas); }
+      });
     }
 
     // 两人的贡献：颜色条按得分对比，得分高的有徽章；最后是谁卡住
@@ -167,7 +224,8 @@
     }
 
     back() {
-      BG.App.toMenu();
+      if (this.sharePreview) this.sharePreview = false;
+      else BG.App.toMenu();
     }
 
     down(x, y) { this.ui.down(x, y); }
