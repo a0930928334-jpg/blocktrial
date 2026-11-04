@@ -54,6 +54,7 @@
       this.hold = null;
       this.holdUnlocked = false;
       this.holdLeft = 0;
+      this.holdRescues = 0;
       this.groupsForSmall = 0;
       this.itemUsedUp = {};
       this.clearsForBomb = 0;
@@ -305,7 +306,7 @@
         roll(this, 'dynamicSmall' + salt, small, Math.ceil(d.candidates / 3));
       }
       const pickRng = new BG.RNG(BG.RNG.derive(this.seed, 'dynamicPick' + salt, this.groupIndex));
-      return BG.Dealer.select(phase, candidates, pickRng, this.cfg, this.mode, stage);
+      return BG.Dealer.select(phase, candidates, pickRng, this.cfg, this.mode, stage, this.director.sprintMild);
     }
 
     // ---------- 托盘 ----------
@@ -381,6 +382,7 @@
     // source：托盘下标，或 'hold'
     place(source, r, c) {
       if (!this.canAct() || !this.canPlace(source, r, c)) return false;
+      if (source === 'hold') this._noteHoldRescue();
       const piece = this._pieceFrom(source);
       const shape = piece.shape;
 
@@ -636,6 +638,7 @@
     // 把托盘里的方块放进暂存格，算用掉 1 次；暂存格有方块时互换
     stash(trayIndex) {
       if (!this.canAct() || !this.canStash() || !this.tray[trayIndex]) return false;
+      this._noteHoldRescue();
       const piece = this.tray[trayIndex];
       this.tray[trayIndex] = this.hold;
       this.hold = piece;
@@ -651,6 +654,7 @@
     // 把暂存的方块取回托盘
     unstash() {
       if (!this.canAct() || !this.hold) return false;
+      this._noteHoldRescue();
       this._addToTray(this.hold);
       this._emptyHold();
       this._afterChange();
@@ -690,15 +694,35 @@
 
     // ---------- 结束与复活 ----------
 
-    _anyPieceFits() {
+    _trayFits() {
       const board = this.board;
-      const pieces = this.tray.concat([this.hold]).filter(Boolean);
-      return pieces.some(function (p) { return board.hasPlacement(p.shape); });
+      return this.tray.some(function (p) { return p && board.hasPlacement(p.shape); });
+    }
+
+    // 暂存格里的块能放（取出和放下都不计次数）；或者托盘只剩 1 块、暂存格空着，放进去这组就算放完，会发新一组。
+    // 互换不增加方块，手里这几块都放不下时换了也放不下；剩 2 块以上时暂存格装不完，托盘也空不了。
+    _holdCanRescue() {
+      if (this.hold && this.board.hasPlacement(this.hold.shape)) return true;
+      return this.canStash() && !this.hold && this.tray.filter(Boolean).length === 1;
+    }
+
+    // 卡死的唯一判定：用上暂存也放不下任何方块
+    isStuck() {
+      return !this._trayFits() && !this._holdCanRescue();
+    }
+
+    // 托盘里的块都放不下，只能靠暂存继续
+    holdOnlyPath() {
+      return this.phase === 'playing' && !this._trayFits() && this._holdCanRescue();
+    }
+
+    _noteHoldRescue() {
+      if (this.holdOnlyPath()) this.holdRescues++;
     }
 
     _afterChange() {
       if (!this.canAct()) return;
-      if (this._anyPieceFits()) {
+      if (!this.isStuck()) {
         this.phase = 'playing';
         this.currentStuck = null;
         return;
@@ -879,6 +903,7 @@
         bombsGained: this.bombsGained,
         bombsUsed: this.bombsUsed,
         crossGuards: this.crossGuards,
+        holdRescues: this.holdRescues,
         itemRelics: this._itemRecord(),
         rewardsGained: this.rewardsGained,
         rewardsUsed: this.rewardsUsed,

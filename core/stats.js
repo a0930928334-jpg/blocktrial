@@ -110,7 +110,8 @@
       rlx: r.relaxedDeals || 0,
       spr: r.sprintEntries || 0,
       bon: r.bonusEntries || 0,
-      sd: r.diedInSprint ? 1 : 0
+      sd: r.diedInSprint ? 1 : 0,
+      hr: r.holdRescues || 0
     };
     // 过线保护每次触发时的分数，长度就是次数，没触发的局不写
     if ((r.crossGuards || []).length > 0) {

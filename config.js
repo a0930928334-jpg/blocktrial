@@ -121,7 +121,9 @@ BG.Config = {
     // 关键分：每档遗物阶梯、每个分数台阶（milestone.scoreStep）、个人最高分。张弛节奏都围绕它，见 CLAUDE.md
     sprint: {
       keyRatio: 0.1,          // 冲刺期：分数距下一个关键分不到这个比例时触发
-      maxGroups: 2            // 每个关键分最多几组，选有解候选里最难的
+      maxGroups: 2,           // 每个关键分最多几组，选有解候选里最难的
+      // 温和冲刺：低于 below 的关键分只发 maxGroups 组，难度取平常期和最难之间的 ratio 处
+      mild: { below: 1000, maxGroups: 1, ratio: 0.5 }
     },
     trial: {
       minGroups: 1,           // 考验期：选完遗物后最少几组
@@ -229,6 +231,7 @@ BG.Config = {
     stageBannerLife: 1600, // "阶段 N · 难度提升"横幅显示多久，不挡操作
     rewardToastLife: 2400, // "奖励：免费换一组 ×1"显示多久，不挡操作
     pendingRelicMs: 900,  // 待选遗物的小图标跳动一次的时长
+    holdHintMs: 900,      // 只剩暂存这条路时，暂存格跳动一次的时长
     // 分数台阶和升段的庆祝
     celebrate: {
       lifeMs: 1500,       // 总时长，之后自然消失

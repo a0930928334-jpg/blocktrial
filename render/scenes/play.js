@@ -630,6 +630,15 @@
       const g = this.game;
       const drag = this.drag;
       const over = drag && drag.source !== 'hold' && g.canStash() && Kit.inside(r, drag.x, drag.y);
+      // 只剩暂存这条路时轻微发光、跳动。拖动时停下，放不下飞回来后接着提示
+      const hint = !drag && g.holdOnlyPath() ? 0.5 - 0.5 * Math.cos(2 * Math.PI * this.fx.time / BG.Config.anim.holdHintMs) : -1;
+      if (hint >= 0) {
+        r = { x: r.x, y: r.y - 3 * hint, w: r.w, h: r.h };
+        ctx.save();
+        ctx.globalAlpha = 0.2 + 0.4 * hint;
+        D.strokeRound(ctx, r.x - 3, r.y - 3, r.w + 6, r.h + 6, 14, 3, T.accent);
+        ctx.restore();
+      }
       D.fillRound(ctx, r.x, r.y, r.w, r.h, 12, over ? T.accentDark : T.panel);
       ctx.save();
       ctx.setLineDash([5, 4]);

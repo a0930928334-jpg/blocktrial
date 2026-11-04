@@ -268,6 +268,15 @@
     return [Math.max(0, center - half), Math.min(1, center + half)];
   }
 
+  // 温和冲刺的选牌范围：比平常期多出来的那段难度只取一部分，宽度和平常期相同
+  function mildSprintBand(stage, cfg, mode) {
+    const curve = normalCurve(mode, cfg);
+    const center = BG.Generator.interpolate(curve.center, Math.min(stage, curve.capStage));
+    const target = center + (1 - center) * cfg.dealer.sprint.mild.ratio;
+    const half = cfg.dealer.normal.halfWidth;
+    return [Math.max(0, target - half), Math.min(1, target + half)];
+  }
+
   // 中等别扭形状的权重倍率
   function normalAwkwardMult(stage, cfg, mode) {
     const curve = normalCurve(mode, cfg);
@@ -290,14 +299,15 @@
   }
 
   // candidates：[{ pieces, metrics }]。只从 3 块都能放、有解的组里选，一个都没有时返回 null，由调用方发保底的小方块。
-  function select(phase, candidates, rng, cfg, mode, stage) {
+  // mild：这组冲刺是不是温和冲刺
+  function select(phase, candidates, rng, cfg, mode, stage, mild) {
     const d = cfg.dealer;
     const pool = candidates.filter(fullFit).sort(function (a, b) { return a.metrics.difficulty - b.metrics.difficulty; });
     if (pool.length === 0) return null;
     // 复活缓冲按热身期规则选牌
     if (phase === 'warmup' || phase === 'buffer') return pickFromBand(pool, [0, d.warmupRatio], rng);
     if (phase === 'trial') return pickFromBand(pool, d.trial.band, rng);
-    if (phase === 'sprint') return pool[pool.length - 1];
+    if (phase === 'sprint') return mild ? pickFromBand(pool, mildSprintBand(stage, cfg, mode), rng) : pool[pool.length - 1];
     if (phase === 'bonus') {
       // pool 已按难度从低到高排好：能消够线的组里最好放的；都不够时取能消最多的
       let best = pool[0];
@@ -323,6 +333,7 @@
       this.bonusLeft = 0;
       this.sprintKey = null;
       this.sprintGroups = 0;
+      this.sprintMild = false; // 最近一组冲刺是不是温和冲刺，同组换牌时要沿用
       this.current = null;
       this.entries = {};
       this.groups = {};
@@ -394,8 +405,10 @@
           this.sprintKey = key;
           this.sprintGroups = 0;
         }
-        if (this.sprintGroups < d.sprint.maxGroups) {
+        const mild = key < d.sprint.mild.below;
+        if (this.sprintGroups < (mild ? d.sprint.mild.maxGroups : d.sprint.maxGroups)) {
           this.sprintGroups++;
+          this.sprintMild = mild;
           return 'sprint';
         }
       }
@@ -414,7 +427,7 @@
 
   BG.Dealer = {
     evaluate: evaluate, select: select, isLate: isLate, fullFit: fullFit,
-    normalBand: normalBand, normalAwkwardMult: normalAwkwardMult, stageRaises: stageRaises, boardRows: boardRows
+    normalBand: normalBand, mildSprintBand: mildSprintBand, normalAwkwardMult: normalAwkwardMult, stageRaises: stageRaises, boardRows: boardRows
   };
   BG.DealDirector = DealDirector;
 })();
