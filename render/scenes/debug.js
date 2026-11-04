@@ -83,6 +83,23 @@
       });
       y += 58;
 
+      D.text(ctx, '金币 ' + BG.Wallet.balance() + '　今天第 ' + BG.Wallet.today() + ' 天', x, y + 10, { size: 16, color: T.textDim });
+      y += 28;
+      ui.button(ctx, 'coinAdd', x, y, half, 46, '金币 +100', {
+        size: 16, onTap: function () { BG.Wallet.debugAdd(100); }
+      });
+      ui.button(ctx, 'coinClear', x + half + 8, y, half, 46, '金币清零', {
+        size: 16, onTap: function () { BG.Wallet.debugClear(); }
+      });
+      y += 54;
+      ui.button(ctx, 'coinNextDay', x, y, half, 46, '模拟下一天', {
+        size: 16, onTap: function () { BG.Wallet.debugNextDay(); }
+      });
+      ui.button(ctx, 'coinResetAds', x + half + 8, y, half, 46, '重置看广告次数', {
+        size: 16, onTap: function () { BG.Wallet.debugResetAds(); }
+      });
+      y += 58;
+
       D.text(ctx, '直接获得遗物', x, y + 10, { size: 16, color: T.textDim });
       y += 28;
       BG.Relics.list.forEach(function (relic, i) {

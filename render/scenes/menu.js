@@ -9,11 +9,63 @@
     constructor() {
       this.ui = new BG.UI();
       this.exitHintLeft = 0;
+      this.fly = null;
+      this.flyFrom = null;
+      this.afterEffects = null;
+      const login = BG.Wallet.claimLogin();
+      if (login) {
+        this.fly = new BG.CoinFly({ amount: login.amount, label: '+' + login.amount, sub: '连续 ' + login.streak + ' 天' });
+      }
+    }
+
+    effectsPlaying() {
+      return !!this.fly && this.fly.active();
     }
 
     update(dt) {
       if (this.exitHintLeft > 0) this.exitHintLeft -= dt;
       BG.Pwa.checkForUpdate();
+      if (this.fly) {
+        this.fly.update(dt);
+        if (!this.fly.active()) this.fly = null;
+      }
+      if (this.afterEffects && !this.effectsPlaying()) {
+        const run = this.afterEffects;
+        this.afterEffects = null;
+        run();
+      }
+    }
+
+    _watchCoinAd(x, y) {
+      const self = this;
+      BG.App.watchCoinAd().then(function (amount) {
+        if (amount <= 0) return;
+        self.fly = new BG.CoinFly({ amount: amount, label: '+' + amount });
+        self.flyFrom = { x: x, y: y };
+      });
+    }
+
+    // 余额和看广告领金币的按钮，一行
+    _coinRow(ctx, x, y, w) {
+      const self = this;
+      const h = 56;
+      const balanceW = 96;
+      D.fillRound(ctx, x, y, balanceW, h, 12, T.panel);
+      const shown = BG.Wallet.balance() - (this.fly ? this.fly.pending() : 0);
+      const icon = { x: x + 22, y: y + h / 2 };
+      D.coinIcon(ctx, icon.x, icon.y, 24);
+      D.text(ctx, String(shown), x + 38, y + h / 2, { size: 20, bold: true });
+      const offer = BG.Wallet.adOffer();
+      const bx = x + balanceW + 10;
+      const bw = w - balanceW - 10;
+      const none = offer.left === 0;
+      this.ui.button(ctx, 'coinAd', bx, y, bw, h, '看广告领金币', {
+        style: 'gold', size: 16, disabled: none,
+        sub: none ? '明天再来' : '+' + offer.amount + '，还剩 ' + offer.left + ' 次',
+        onTap: function () { self._watchCoinAd(bx + bw / 2, y + h / 2); }
+      });
+      D.adIcon(ctx, bx + 18, y + 18, 14, none);
+      return icon;
     }
 
     // 再按一次退出
@@ -54,20 +106,30 @@
       const x = safe.left + (screen.width - safe.left - safe.right - w) / 2;
       const cx = x + w / 2;
 
-      const contentH = 72 + 88 + 30 + 66 * 3 + 12 * 2 + 16 + 52;
+      const logoH = 72 + 34;
+      const fullH = 72 + 88 + 30 + 68 + 66 * 3 + 12 * 2 + 16 + 52;
       // 有新版本时顶部留出提示的位置，内容往下排，小屏幕上也不会重叠
       const newVersion = BG.Pwa.availableVersion();
       const noticeH = newVersion ? 64 : 0;
       const usable = screen.height - safe.top - safe.bottom - noticeH;
+      // 小屏幕放不下时不画图标
+      const showLogo = fullH + 24 <= usable;
+      const contentH = showLogo ? fullH : fullH - logoH;
       let y = safe.top + noticeH + Math.max(12, (usable - contentH) / 2);
       if (newVersion) this._updateNotice(ctx, screen, newVersion);
 
-      this._logo(ctx, cx, y);
-      y += 72 + 34;
+      if (showLogo) {
+        this._logo(ctx, cx, y);
+        y += logoH;
+      } else {
+        y += 18;
+      }
       D.text(ctx, '方块试玩版', cx, y, { size: 30, bold: true, align: 'center' });
       y += 34;
       D.text(ctx, BG.Rank.text(BG.Rank.of(app.overallBest(), BG.Config)), cx, y, { size: 16, color: T.gold, align: 'center' });
-      y += 40;
+      y += 26;
+      const icon = this._coinRow(ctx, x, y, w);
+      y += 68;
 
       ui.button(ctx, 'classic', x, y, w, 66, '经典模式', {
         style: 'secondary', size: 20, sub: '最高分 ' + app.getBest('classic'),
@@ -102,6 +164,12 @@
         const hy = screen.height - safe.bottom - 84;
         D.fillRound(ctx, screen.width / 2 - w2 / 2, hy, w2, 44, 22, T.panelLight);
         D.text(ctx, '再按一次退出', screen.width / 2, hy + 22, { size: 16, align: 'center' });
+      }
+
+      if (this.fly) {
+        this.fly.from = this.flyFrom || { x: screen.width / 2, y: screen.height / 2 };
+        this.fly.to = icon;
+        this.fly.draw(ctx);
       }
     }
 

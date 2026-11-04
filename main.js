@@ -43,9 +43,23 @@
 
     // ---------- 流程 ----------
 
+    // 遗物模式金币够时先选开局道具。面板要等庆祝特效播完才弹
     startGame: function (mode) {
+      if (mode !== 'relic' || BG.Wallet.balance() < BG.Config.coins.openingCost) {
+        this.beginGame(mode);
+        return;
+      }
+      const self = this;
+      const open = function () { self.push(new BG.OpeningScene()); };
+      const top = this.top();
+      if (top.effectsPlaying && top.effectsPlaying()) top.afterEffects = open;
+      else open();
+    },
+
+    // opening：开局买的道具，扣费在 Game 里
+    beginGame: function (mode, opening) {
       const seed = mode === 'daily' ? todayNumber() : randomSeed();
-      this.replace(new BG.PlayScene(mode, seed));
+      this.replace(new BG.PlayScene(mode, seed, opening));
     },
 
     // 保存最高分和统计，返回结算页要用的信息
@@ -60,13 +74,14 @@
       Storage.set('overallBest', overall);
       const rank = BG.Rank.of(overall, BG.Config);
 
+      game.coinsEarned = BG.Wallet.awardGame(game.placements, isRecord);
       const record = game.record();
       record.finishedAt = new Date().toISOString();
       BG.Leaderboard.submit(game.mode, game.score, { at: record.finishedAt });
       this.saveRecords(BG.Stats.addRecord(this.loadRecords(), record, BG.Config.stats.keep));
       Storage.set('gamesSinceAd', Storage.get('gamesSinceAd', 0) + 1);
 
-      return { isRecord: isRecord, best: Math.max(oldBest, game.score), rank: rank, rankUp: rank.index > oldRank.index };
+      return { isRecord: isRecord, best: Math.max(oldBest, game.score), rank: rank, rankUp: rank.index > oldRank.index, coins: game.coinsEarned };
     },
 
     showResult: function (game) {
@@ -109,6 +124,13 @@
       return BG.Ads.showRewarded(type).then(function (ok) {
         game.noteAd(type, ok ? 'complete' : 'abandon');
         return ok;
+      });
+    },
+
+    // 看广告领金币，返回领到多少，没看完是 0
+    watchCoinAd: function () {
+      return BG.Ads.showRewarded('coins').then(function (ok) {
+        return ok ? BG.Wallet.claimAd() : 0;
       });
     },
 

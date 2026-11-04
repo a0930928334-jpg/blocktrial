@@ -202,6 +202,24 @@
   }
 
   // 广告图标：圆角底上一个播放三角
+  function coinIcon(ctx, cx, cy, size) {
+    const r = size / 2;
+    ctx.save();
+    ctx.fillStyle = '#b8801a';
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = T.gold;
+    ctx.beginPath();
+    ctx.arc(cx, cy - size * 0.04, r * 0.88, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#ffe08a';
+    ctx.beginPath();
+    ctx.arc(cx, cy - size * 0.04, r * 0.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
   function adIcon(ctx, cx, cy, size, disabled) {
     const half = snapDown(size / 2);
     const x = snap(cx);
@@ -236,6 +254,7 @@
     relicIcon: relicIcon,
     rewardIcon: rewardIcon,
     adIcon: adIcon,
+    coinIcon: coinIcon,
     timeText: timeText
   };
 })();

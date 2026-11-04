@@ -169,6 +169,20 @@ BG.Config = {
     scoreStep: 500        // 每多少分一个台阶：庆祝，经典和每日挑战同时切换阶段主题
   },
 
+  // ---------- 金币（不能用钱买，规则见 CLAUDE.md） ----------
+  coins: {
+    game: 2,                // 打完一局
+    recordBonus: 3,         // 破个人纪录再加
+    minPlacements: 20,      // 这局放置不满这么多块不给
+    login: [10, 12, 14, 16, 18, 20], // 连续登录第 1～6 天，之后保持最后一个
+    adFirst: 20,            // 看广告领金币：每天第一次
+    adNext: 10,             // 之后每次
+    adMax: 5,               // 每天最多几次
+    reviveCost: 10,         // 金币复活，和广告复活合计每局 1 次
+    openingCost: 15,        // 开局道具，只在遗物模式，每局最多买 1 个
+    openingItems: ['timeBomb', 'holdSlot']
+  },
+
   // ---------- 局外段位，按所有模式的个人最高分 ----------
   rank: {
     tiers: [[500, '新手'], [1000, '熟练'], [2000, '高手'], [3000, '大师'], [5000, '传说']]
@@ -231,6 +245,7 @@ BG.Config = {
     stageBannerLife: 1600, // "阶段 N · 难度提升"横幅显示多久，不挡操作
     rewardToastLife: 2400, // "奖励：免费换一组 ×1"显示多久，不挡操作
     pendingRelicMs: 900,  // 待选遗物的小图标跳动一次的时长
+    coinFly: { minCoins: 3, maxCoins: 8, stagger: 70, flyMs: 520, holdMs: 500, fadeMs: 350, arc: 40, size: 24, labelGap: 20 }, // 金币飞向余额
     holdHintMs: 900,      // 只剩暂存这条路时，暂存格跳动一次的时长
     // 分数台阶和升段的庆祝
     celebrate: {
@@ -283,6 +298,8 @@ BG.Config = {
     showRecent: 20,       // 统计页显示最近多少局
     keep: 100,            // 本地最多保留多少局（复制完整版时全部导出）
     compactGames: 8,      // 复制精简版时导出最近几局，8 局一定不超过 5000 字符
-    compactMaxChars: 600  // 精简版每局最多多少字符
+    compactMaxChars: 600, // 精简版每局最多多少字符
+    dailyKeep: 7,         // 每日汇总保留最近几天
+    activeGapMs: 30000    // 有效游戏时长：两次操作之间每段最多算多久
   }
 };

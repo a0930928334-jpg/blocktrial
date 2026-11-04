@@ -35,8 +35,8 @@
       const self = this;
       const records = this._records();
       const text = compact
-        ? BG.Stats.exportCompact(records, BG.Config.stats)
-        : JSON.stringify(records);
+        ? BG.Stats.exportCompact(records, BG.Config.stats, BG.Wallet.dailySummary())
+        : JSON.stringify({ games: records, daily: BG.Wallet.dailySummary() });
       const games = compact ? Math.min(records.length, BG.Config.stats.compactGames) : records.length;
       BG.Clipboard.copy(text).then(function (ok) {
         self.note = ok ? '已复制 ' + games + ' 局，' + text.length + ' 字符' : '未能自动复制';

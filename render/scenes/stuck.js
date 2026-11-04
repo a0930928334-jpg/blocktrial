@@ -7,6 +7,7 @@
 
   const BUTTON_H = 58;
   const GAP = 10;
+  const TEXT_H = 26;
 
   class StuckScene {
     constructor(game, play) {
@@ -44,6 +45,39 @@
       });
     }
 
+    _coinRevive() {
+      this.game.reviveWithCoins();
+      this._closeIfDone();
+    }
+
+    // 和纪录的差距。还没有纪录时不显示
+    _recordText() {
+      const g = this.game;
+      if (g.best <= 0) return null;
+      return g.score > g.best ? '已超纪录 ' + (g.score - g.best) + ' 分' : '距离纪录还差 ' + (g.best - g.score) + ' 分';
+    }
+
+    // 广告和金币复活放在一行，只有一个时占满
+    _reviveRow(ctx, x, y, w, ad, coin) {
+      const self = this;
+      const gap = 8;
+      const half = ad && coin ? (w - gap) / 2 : w;
+      if (ad) {
+        this.ui.button(ctx, 'revive', x, y, half, BUTTON_H, '看广告复活', {
+          style: 'primary', size: 16, disabled: !ad.works, sub: ad.works ? '清 3×3' : '清完也放不下',
+          onTap: function () { self._revive(); }
+        });
+        D.adIcon(ctx, x + 14, y + 14, 14, !ad.works);
+      }
+      if (coin) {
+        const sub = !coin.clears ? '清完也放不下' : (coin.affordable ? '清 3×3' : '余额 ' + coin.balance);
+        this.ui.button(ctx, 'coinRevive', ad ? x + half + gap : x, y, half, BUTTON_H, '金币复活 ' + coin.cost, {
+          style: 'gold', size: 16, disabled: !coin.works, sub: sub,
+          onTap: function () { self._coinRevive(); }
+        });
+      }
+    }
+
     // 奖励的免费次数，不看广告
     _freeSwap() {
       this.game.swapTray(true);
@@ -76,7 +110,13 @@
 
       const safe = screen.safe;
       const panelW = Math.min(screen.width - safe.left - safe.right - 24, 420);
-      const panelH = 54 + options.length * (BUTTON_H + GAP) + 8;
+      const find = function (id) { return options.find(function (o) { return o.id === id; }); };
+      const ad = find('revive');
+      const coin = find('coinRevive');
+      const isRevive = function (o) { return o.id === 'freeRevive' || o.id === 'revive' || o.id === 'coinRevive'; };
+      const recordText = options.some(isRevive) ? this._recordText() : null;
+      const rows = options.length - (ad && coin ? 1 : 0);
+      const panelH = 54 + rows * (BUTTON_H + GAP) + (recordText ? TEXT_H : 0) + 8;
       // 贴着屏幕下方，把棋盘露出来
       const px = safe.left + (screen.width - safe.left - safe.right - panelW) / 2;
       const py = screen.height - safe.bottom - panelH - 10;
@@ -86,7 +126,21 @@
       const x = px + 14;
       const w = panelW - 28;
       let y = py + 54;
+      let textDrawn = false;
+      let rowDrawn = false;
       options.forEach(function (o) {
+        if (recordText && !textDrawn && isRevive(o)) {
+          textDrawn = true;
+          D.text(ctx, recordText, x + w / 2, y + 12, { size: 16, bold: true, color: T.gold, align: 'center' });
+          y += TEXT_H;
+        }
+        if (o.id === 'revive' || o.id === 'coinRevive') {
+          if (rowDrawn) return;
+          rowDrawn = true;
+          self._reviveRow(ctx, x, y, w, ad, coin);
+          y += BUTTON_H + GAP;
+          return;
+        }
         if (o.id === 'bomb') {
           ui.button(ctx, 'bomb', x, y, w, BUTTON_H, '使用炸弹', {
             style: 'gold', size: 18, sub: '免费，还有 ' + o.count + ' 颗',
@@ -107,12 +161,6 @@
           self._adButton(ctx, 'swap', x, y, w, '换一组', '看广告，还剩 ' + o.left + ' 次', {
             style: 'primary',
             onTap: function () { self._swap(); }
-          });
-        } else if (o.id === 'revive') {
-          const sub = o.works ? '看广告清 3×3，还剩 ' + o.left + ' 次' : '清完也放不下，此项不可用';
-          self._adButton(ctx, 'revive', x, y, w, '复活', sub, {
-            style: 'primary', disabled: !o.works,
-            onTap: function () { self._revive(); }
           });
         } else {
           ui.button(ctx, 'giveUp', x, y, w, BUTTON_H, '放弃', {

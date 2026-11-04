@@ -7,9 +7,9 @@
   const Kit = BG.UIKit;
 
   class PlayScene {
-    constructor(mode, seed) {
+    constructor(mode, seed, opening) {
       this.best = BG.App.getBest(mode, seed);
-      this.game = new BG.Game({ mode: mode, seed: seed, best: this.best, dynamic: BG.App.dynamicDeal });
+      this.game = new BG.Game({ mode: mode, seed: seed, best: this.best, dynamic: BG.App.dynamicDeal, wallet: BG.Wallet, opening: opening });
       this.anim = new BG.Animator();
       this.ui = new BG.UI();
       this.tip = null;
@@ -42,6 +42,9 @@
 
     // 庆祝、分数跳动和阶段过渡不等弹窗：三选一盖在上面时也接着走完。主循环在本场景不在最上层时单独调用
     updateFx(dt) {
+      // 面板上想怎么选也算在玩，暂停不算
+      const top = BG.App.top();
+      if (top instanceof BG.StuckScene || top instanceof BG.RelicPickScene) this.game.tickActive(dt);
       this.fx.update(dt);
       this.celebrate.update(dt, this.L.board);
       this.stage.set(this.game.stageNumber());
@@ -50,6 +53,7 @@
 
     update(dt) {
       this.game.tick(dt);
+      this.game.tickActive(dt);
       this.anim.update(dt);
       this.updateFx(dt);
       this._updateStageBanner(dt);
@@ -569,7 +573,7 @@
       const app = BG.App;
       const can = g.canAct();
       const tools = [];
-      if (g.has('timeBomb')) {
+      if (g.hasBombTool()) {
         tools.push({
           id: 'bomb', label: '炸弹', sub: '×' + g.bombs, disabled: !can || g.bombs <= 0, style: self.aiming ? 'gold' : undefined,
           onTap: function () {
@@ -706,6 +710,7 @@
       if (this.tip && !(hit && String(this.ui.pressedId).indexOf('relic_') === 0)) this.tip = null;
       if (hit) return;
       if (!this.game.canAct()) return;
+      this.game.noteAction();
 
       if (this.holdRect && this.game.hold && Kit.inside(this.holdRect, x, y)) {
         this._startDrag('hold', this.game.hold, x, y, false);

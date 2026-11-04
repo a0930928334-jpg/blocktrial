@@ -8,8 +8,9 @@
   'use strict';
 
   class Game {
-    // opts: { mode: 'classic'|'relic'|'daily', seed, config?, best?, dynamic? }
+    // opts: { mode: 'classic'|'relic'|'daily', seed, config?, best?, dynamic?, wallet?, opening? }
     // best：这个模式的个人最高分，dynamic：是否使用动态发牌
+    // wallet：{ balance(), spend(n) } 金币从这里扣，没有就不能用金币。opening：开局买的道具
     constructor(opts) {
       this.mode = opts.mode;
       this.seed = opts.seed >>> 0;
@@ -76,6 +77,15 @@
       this.placementsAtRevive = 0;
       this.ads = BG.Stats.emptyAds();
 
+      this.wallet = opts.wallet || null;
+      this.coinsEarned = 0;
+      this.coinsSpent = 0;
+      this.reviveMethods = []; // 复活方式，按顺序：a 广告、c 金币、f 奖励的免费次数
+      this.openingItem = null;
+      this.activeMs = 0;
+      this.idleMs = 0;         // 距上次操作多久
+      this._applyOpening(opts.opening);
+
       this.milestones = [];
       this.recordBroken = false;
       this.relaxedDeals = 0;
@@ -100,6 +110,29 @@
 
     has(id) {
       return this.relics.indexOf(id) !== -1;
+    }
+
+    // 开局道具：只在遗物模式，付得起才生效。炸弹计入每局上限；暂存和遗物规则相同，三选一不再出现。
+    // 不算遗物：不占遗物名额，炸弹也不会因此按消除获得
+    _applyOpening(id) {
+      const c = this.cfg.coins;
+      if (!id || this.mode !== 'relic' || c.openingItems.indexOf(id) === -1) return;
+      if (!this.wallet || !this.wallet.spend(c.openingCost)) return;
+      this.coinsSpent += c.openingCost;
+      this.openingItem = id;
+      if (id === 'timeBomb') {
+        this.bombs = 1;
+        this.bombsGained = 1;
+      } else {
+        this.holdUnlocked = true;
+        this.holdLeft = this.cfg.relic.holdUses;
+        this.relicPool = this.relicPool.filter(function (r) { return r !== id; });
+      }
+    }
+
+    // 道具栏要不要显示炸弹
+    hasBombTool() {
+      return this.has('timeBomb') || this.openingItem === 'timeBomb';
     }
 
     _hasFn() {
@@ -190,6 +223,18 @@
 
     canAct() {
       return this.phase === 'playing' || this.phase === 'stuck';
+    }
+
+    // 有效游戏时长：两次操作之间每段最多算 activeGapMs。页面在后台或暂停时外部不调用
+    tickActive(dtMs) {
+      if (this.phase === 'over') return;
+      const gap = this.cfg.stats.activeGapMs;
+      if (this.idleMs < gap) this.activeMs += Math.min(dtMs, gap - this.idleMs);
+      this.idleMs += dtMs;
+    }
+
+    noteAction() {
+      this.idleMs = 0;
     }
 
     // ---------- 发牌 ----------
@@ -383,6 +428,7 @@
     place(source, r, c) {
       if (!this.canAct() || !this.canPlace(source, r, c)) return false;
       if (source === 'hold') this._noteHoldRescue();
+      this.noteAction();
       const piece = this._pieceFrom(source);
       const shape = piece.shape;
 
@@ -596,6 +642,7 @@
 
     pickRelic(id) {
       if (this.phase !== 'relicPick' || this.offer.ids.indexOf(id) === -1) return false;
+      this.noteAction();
       const tier = this.offer.tier;
       this._grantRelic(id);
       const picked = this.relicStats.picked;
@@ -639,6 +686,7 @@
     stash(trayIndex) {
       if (!this.canAct() || !this.canStash() || !this.tray[trayIndex]) return false;
       this._noteHoldRescue();
+      this.noteAction();
       const piece = this.tray[trayIndex];
       this.tray[trayIndex] = this.hold;
       this.hold = piece;
@@ -655,6 +703,7 @@
     unstash() {
       if (!this.canAct() || !this.hold) return false;
       this._noteHoldRescue();
+      this.noteAction();
       this._addToTray(this.hold);
       this._emptyHold();
       this._afterChange();
@@ -663,6 +712,7 @@
 
     useBomb(r, c) {
       if (!this.canAct() || this.bombs <= 0) return false;
+      this.noteAction();
       this.bombs--;
       this.bombsUsed++;
       this._noteStuckChoice('bomb');
@@ -679,6 +729,7 @@
     // 看完激励视频后调用。free：用奖励的免费次数，不看广告，也不占广告次数
     swapTray(free) {
       if (!this.canAct() || (free ? this.freeSwaps : this.swapsLeft()) <= 0 || this._trayEmpty()) return false;
+      this.noteAction();
       if (free) {
         this.freeSwaps--;
         this._noteRewardUsed('swap');
@@ -788,6 +839,13 @@
       if (this.revivesLeft() > 0 && !tried.revive) {
         out.push({ id: 'revive', left: this.revivesLeft(), works: this.reviveClearWorks() });
       }
+      // 金币复活和广告复活合计每局 1 次。广告中途关闭了，这次卡死还能用金币
+      if (this.wallet && this.revivesLeft() > 0) {
+        const clears = this.reviveClearWorks();
+        const balance = this.wallet.balance();
+        const affordable = balance >= this.cfg.coins.reviveCost;
+        out.push({ id: 'coinRevive', cost: this.cfg.coins.reviveCost, balance: balance, affordable: affordable, clears: clears, works: affordable && clears });
+      }
       out.push({ id: 'giveUp' });
       return out;
     }
@@ -801,6 +859,7 @@
     // 玩家选择放弃
     giveUpStuck() {
       if (this.phase !== 'stuck') return false;
+      this.noteAction();
       this._noteStuckChoice('giveUp');
       this.endGame('stuck');
       return true;
@@ -832,17 +891,40 @@
       });
     }
 
+    canCoinRevive() {
+      return this.phase === 'stuck' && !!this.wallet && this.revivesLeft() > 0
+        && this.wallet.balance() >= this.cfg.coins.reviveCost && this.reviveClearWorks();
+    }
+
+    reviveWithCoins() {
+      if (!this.canCoinRevive() || !this.wallet.spend(this.cfg.coins.reviveCost)) return false;
+      this.coinsSpent += this.cfg.coins.reviveCost;
+      this.revivesUsed++;
+      this.reviveMethods.push('c');
+      this._noteStuckChoice('coinRevive');
+      this._applyRevive();
+      return true;
+    }
+
     // 看完激励视频后调用：清除最密集的 3×3。free：用奖励的免费次数，不看广告，也不占广告次数
     revive(free) {
       if (!this.canRevive(free) || !this.reviveClearWorks()) return false;
       if (free) {
         this.freeRevives--;
         this._noteRewardUsed('revive');
+        this.reviveMethods.push('f');
         this._noteStuckChoice('freeRevive');
       } else {
         this.revivesUsed++;
+        this.reviveMethods.push('a');
         this._noteStuckChoice('revive');
       }
+      this._applyRevive();
+      return true;
+    }
+
+    _applyRevive() {
+      this.noteAction();
       this.revivePhase = this.currentDeal.phase;
       this.bufferLeft = this.cfg.ads.revive.bufferGroups;
       // 手里剩的大方块也换掉，否则放完一块就又卡死，下一组缓冲的牌都等不到
@@ -854,7 +936,6 @@
       this._emit('bombed', { r: center.r, c: center.c, removed: removed });
       this.currentDeal.solvable = BG.Dealer.evaluate(this.board, this.tray.filter(Boolean), this.cfg).solvable;
       this._afterChange();
-      return true;
     }
 
     // reason：stuck 无处可放 / abandon 主动放弃
@@ -887,6 +968,11 @@
         seed: this.seed,
         score: this.score,
         durationMs: Math.round(this.elapsedMs),
+        activeMs: Math.round(this.activeMs),
+        coinsEarned: this.coinsEarned,
+        coinsSpent: this.coinsSpent,
+        reviveMethods: this.reviveMethods.slice(),
+        openingItem: this.openingItem,
         placements: this.placements,
         linesCleared: this.linesCleared,
         maxCombo: this.maxCombo,
@@ -932,7 +1018,9 @@
     // 暂存：{ left: 剩余次数, usedUpStep: 用完时是第几步，没用完是 null }
     _itemRecord() {
       const out = {};
-      this.relics.forEach(function (id) {
+      const ids = this.relics.slice();
+      if (this.openingItem && ids.indexOf(this.openingItem) === -1) ids.push(this.openingItem);
+      ids.forEach(function (id) {
         const left = this.itemLeft(id);
         if (left === null) return;
         if (id === 'timeBomb') {

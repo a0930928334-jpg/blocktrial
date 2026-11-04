@@ -67,7 +67,7 @@
     return out;
   }
 
-  const CHOICE_CODES = { bomb: 'b', swap: 's', revive: 'r', giveUp: 'g', swapAbandoned: 'sx', reviveAbandoned: 'rx', freeSwap: 'fs', freeRevive: 'fr' };
+  const CHOICE_CODES = { bomb: 'b', swap: 's', revive: 'r', giveUp: 'g', swapAbandoned: 'sx', reviveAbandoned: 'rx', freeSwap: 'fs', freeRevive: 'fr', coinRevive: 'cr' };
 
   // 卡死面板的选择压成短字符串，每次卡死用 | 分开，例如 "s|b,r|g"
   function compactChoices(list) {
@@ -91,6 +91,9 @@
       m: r.mode,
       s: r.score,
       sec: Math.round((r.durationMs || 0) / 1000),
+      act: Math.round((r.activeMs || 0) / 1000),
+      ce: r.coinsEarned || 0,
+      cs: r.coinsSpent || 0,
       n: r.placements,
       tier: r.tierReached,
       first: r.firstRelicStep === undefined ? null : r.firstRelicStep,
@@ -113,6 +116,9 @@
       sd: r.diedInSprint ? 1 : 0,
       hr: r.holdRescues || 0
     };
+    // 复活方式和开局道具，没有的局不写
+    if ((r.reviveMethods || []).length > 0) out.rvt = r.reviveMethods.join(',');
+    if (r.openingItem) out.op = ITEM_CODES[r.openingItem];
     // 过线保护每次触发时的分数，长度就是次数，没触发的局不写
     if ((r.crossGuards || []).length > 0) {
       out.cg = r.crossGuards.map(function (x) { return x.score; });
@@ -139,11 +145,14 @@
     return out;
   }
 
-  // 复制用的精简 JSON：最近几局、不缩进
-  function exportCompact(records, statsCfg) {
-    return JSON.stringify(records.slice(0, statsCfg.compactGames).map(function (r) {
-      return compactRecord(r, statsCfg.compactMaxChars);
-    }));
+  // 复制用的精简 JSON：最近几局、不缩进。daily：每日汇总 [[月日, 登录奖励, 看广告领金币次数]]
+  function exportCompact(records, statsCfg, daily) {
+    return JSON.stringify({
+      games: records.slice(0, statsCfg.compactGames).map(function (r) {
+        return compactRecord(r, statsCfg.compactMaxChars);
+      }),
+      daily: daily || []
+    });
   }
 
   // 回到菜单时要不要播插屏。开关关闭时永远不播。
