@@ -7,9 +7,9 @@
   const Kit = BG.UIKit;
 
   class PlayScene {
-    constructor(mode, seed, opening) {
+    constructor(mode, seed, opening, names) {
       this.best = BG.App.getBest(mode, seed);
-      this.game = new BG.Game({ mode: mode, seed: seed, best: this.best, dynamic: BG.App.dynamicDeal, wallet: BG.Wallet, opening: opening });
+      this.game = new BG.Game({ mode: mode, seed: seed, best: this.best, dynamic: BG.App.dynamicDeal, wallet: BG.Wallet, opening: opening, names: names });
       this.anim = new BG.Animator();
       this.ui = new BG.UI();
       this.tip = null;
@@ -24,11 +24,12 @@
       this.bannerStage = this.game.stageNumber();
       this.stageBanner = null;
       this.rewardToast = null;
+      this.turnToast = null;
       this.resize(BG.Screen);
     }
 
     resize(screen) {
-      this.L = BG.Layout.compute(screen, this.game.relicMode);
+      this.L = BG.Layout.compute(screen, this.game.relicMode, !!this.game.duo);
     }
 
     back() {
@@ -82,12 +83,16 @@
         this.rewardToast.left -= dt;
         if (this.rewardToast.left <= 0) this.rewardToast = null;
       }
+      if (this.turnToast) {
+        this.turnToast.left -= dt;
+        if (this.turnToast.left <= 0) this.turnToast = null;
+      }
       const stage = g.stageNumber();
       if (stage === this.bannerStage) return;
       this.bannerStage = stage;
       if (g.fixedSequence) return;
       // 到了难度上限之后只报阶段，不能再说难度提升
-      const raises = BG.Dealer.stageRaises(stage, BG.Config, g.mode);
+      const raises = BG.Dealer.stageRaises(stage, BG.Config, g.ruleMode);
       this.stageBanner = { text: '阶段 ' + stage + (raises ? ' · 难度提升' : ''), left: BG.Config.anim.stageBannerLife };
     }
 
@@ -160,6 +165,9 @@
             BG.Audio.play('relic');
             BG.Vibrate.short(cfg.feel.vibrateMs);
             self.rewardToast = { text: '奖励：' + BG.Rewards[e.id].toast, left: cfg.anim.rewardToastLife };
+            break;
+          case 'turnChanged':
+            self.turnToast = { text: '轮到 ' + e.name, player: e.player, left: cfg.anim.turnToastLife };
             break;
           case 'rushStart':
             BG.Audio.play('win');
@@ -273,6 +281,7 @@
       this.celebrate.drawBehind(ctx);
       this._drawHeader(ctx);
       if (this.game.relicMode) this._drawRelicBar(ctx);
+      if (this.game.duo) this._drawTurnBar(ctx);
 
       const off = this.anim.shakeOffset();
       ctx.save();
@@ -286,6 +295,7 @@
       this.celebrate.drawBanner(ctx, this.L.header, this.stage.color('glow'));
       this._drawStageBanner(ctx);
       this._drawRewardToast(ctx);
+      this._drawTurnToast(ctx);
       this._drawBanners(ctx);
       this._drawRelicTip(ctx);
       this.anim.drawParticles(ctx);
@@ -331,6 +341,40 @@
       ctx.restore();
     }
 
+    // 两人各一格，轮到的人填上自己的颜色
+    _drawTurnBar(ctx) {
+      const r = this.L.turn;
+      const d = this.game.duo;
+      const gap = 8;
+      const w = (r.w - gap) / 2;
+      const h = r.h - 6;
+      d.players.forEach(function (p, i) {
+        const x = r.x + i * (w + gap);
+        const y = r.y + 3;
+        const now = i === d.current;
+        D.fillRound(ctx, x, y, w, h, 10, now ? T.duo[i] : T.panel);
+        if (!now) D.strokeRound(ctx, x, y, w, h, 10, 1.5, T.duo[i]);
+        const color = now ? '#0b0e13' : T.textDim;
+        D.text(ctx, p.name, x + 10, y + h / 2, { size: 16, bold: now, color: color });
+        D.text(ctx, String(p.score), x + w - 10, y + h / 2, { size: 16, bold: true, color: color, align: 'right' });
+      });
+    }
+
+    // 换人提示盖在轮次条上，不挡棋盘，淡出时往上飘
+    _drawTurnToast(ctx) {
+      const t = this.turnToast;
+      if (!t) return;
+      const r = this.L.turn;
+      const life = BG.Config.anim.turnToastLife;
+      const fade = Math.min(1, t.left / (life * 0.3));
+      const rise = (1 - fade) * 10;
+      ctx.save();
+      ctx.globalAlpha = fade;
+      D.fillRound(ctx, r.x, r.y + 3 - rise, r.w, r.h - 6, 10, T.duo[t.player]);
+      D.text(ctx, t.text, r.x + r.w / 2, r.y + r.h / 2 - rise, { size: 20, bold: true, color: '#0b0e13', align: 'center' });
+      ctx.restore();
+    }
+
     _drawHeader(ctx) {
       const h = this.L.header;
       const g = this.game;
@@ -340,7 +384,7 @@
       const best = Math.max(this.best, g.score);
       D.text(ctx, '最高分', h.x + h.w - 4, h.y + 14, { size: 16, color: T.textDim, align: 'right' });
       D.text(ctx, String(best), h.x + h.w - 4, h.y + 39, { size: 22, bold: true, color: T.gold, align: 'right' });
-      const label = { classic: '经典模式', relic: '遗物模式', daily: '每日挑战' }[g.mode];
+      const label = { classic: '经典模式', relic: '遗物模式', daily: '每日挑战', duo: '双人模式' }[g.mode];
       if (BG.App.debug) {
         const self = this;
         this.ui.button(ctx, 'debug', h.x + h.w / 2 - 36, h.y + 6, 72, 44, '调试', {

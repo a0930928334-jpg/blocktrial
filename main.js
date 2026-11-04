@@ -43,23 +43,41 @@
 
     // ---------- 流程 ----------
 
-    // 遗物模式金币够时先选开局道具。面板要等庆祝特效播完才弹
+    // 遗物模式金币够时先选开局道具，双人先改名。面板要等庆祝特效播完才弹
     startGame: function (mode) {
-      if (mode !== 'relic' || BG.Wallet.balance() < BG.Config.coins.openingCost) {
+      const relicPanel = mode === 'relic' && BG.Wallet.balance() >= BG.Config.coins.openingCost;
+      if (!relicPanel && mode !== 'duo') {
         this.beginGame(mode);
         return;
       }
       const self = this;
-      const open = function () { self.push(new BG.OpeningScene()); };
+      const open = function () { self.push(mode === 'duo' ? new BG.DuoSetupScene() : new BG.OpeningScene()); };
       const top = this.top();
       if (top.effectsPlaying && top.effectsPlaying()) top.afterEffects = open;
       else open();
     },
 
-    // opening：开局买的道具，扣费在 Game 里
-    beginGame: function (mode, opening) {
+    // opening：开局买的道具，扣费在 Game 里。names：双人的名字，不传就用上次的
+    beginGame: function (mode, opening, names) {
       const seed = mode === 'daily' ? todayNumber() : randomSeed();
-      this.replace(new BG.PlayScene(mode, seed, opening));
+      this.replace(new BG.PlayScene(mode, seed, opening, mode === 'duo' ? (names || this.duoNames()) : undefined));
+    },
+
+    // 结算页的再来一局：双人保留名字，不再问
+    restartGame: function (game) {
+      if (game.duo) this.beginGame('duo', null, game.duo.players.map(function (p) { return p.name; }));
+      else this.startGame(game.mode);
+    },
+
+    duoNames: function () {
+      const saved = Storage.get('duoNames', []);
+      return BG.Config.duo.defaultNames.map(function (name, i) {
+        return BG.DuoState.cleanName(saved[i], i, BG.Config);
+      });
+    },
+
+    saveDuoNames: function (names) {
+      Storage.set('duoNames', names);
     },
 
     // 保存最高分和统计，返回结算页要用的信息
@@ -69,15 +87,16 @@
       const isRecord = game.score > oldBest;
       if (isRecord) Storage.set(key, game.score);
 
+      // 段位和排行榜是个人的，队伍分数不算
       const oldRank = BG.Rank.of(this.overallBest(), BG.Config);
-      const overall = Math.max(this.overallBest(), game.score);
+      const overall = game.duo ? this.overallBest() : Math.max(this.overallBest(), game.score);
       Storage.set('overallBest', overall);
       const rank = BG.Rank.of(overall, BG.Config);
 
       game.coinsEarned = BG.Wallet.awardGame(game.placements, isRecord);
       const record = game.record();
       record.finishedAt = new Date().toISOString();
-      BG.Leaderboard.submit(game.mode, game.score, { at: record.finishedAt });
+      if (!game.duo) BG.Leaderboard.submit(game.mode, game.score, { at: record.finishedAt });
       this.saveRecords(BG.Stats.addRecord(this.loadRecords(), record, BG.Config.stats.keep));
       Storage.set('gamesSinceAd', Storage.get('gamesSinceAd', 0) + 1);
 
@@ -98,6 +117,10 @@
     // 安卓返回键：交给最上层的场景处理，广告播放时不响应
     onBack: function () {
       if (BG.Ads.active()) return;
+      if (BG.TextInput.active()) {
+        BG.TextInput.close();
+        return;
+      }
       const top = this.top();
       if (top.back) top.back();
     },

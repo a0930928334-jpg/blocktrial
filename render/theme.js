@@ -16,6 +16,7 @@
     accent: '#2fc4b2',
     accentDark: '#1b8074',
     gold: '#ffc23c',
+    duo: ['#3fa9f5', '#ff8a3d'], // 双人模式两人的代表颜色
     danger: '#ff6b5e',
     dim: 'rgba(5, 7, 10, 0.72)',
     pieces: [

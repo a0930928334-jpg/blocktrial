@@ -8,14 +8,17 @@
   'use strict';
 
   class Game {
-    // opts: { mode: 'classic'|'relic'|'daily', seed, config?, best?, dynamic?, wallet?, opening? }
+    // opts: { mode: 'classic'|'relic'|'daily'|'duo', seed, config?, best?, dynamic?, wallet?, opening?, names? }
     // best：这个模式的个人最高分，dynamic：是否使用动态发牌
     // wallet：{ balance(), spend(n) } 金币从这里扣，没有就不能用金币。opening：开局买的道具
+    // names：双人模式两人的名字
     constructor(opts) {
       this.mode = opts.mode;
+      // 发牌、难度和节奏按哪个模式算。双人全部沿用经典，同一种子、同样的放法，牌完全相同
+      this.ruleMode = this.mode === 'duo' ? 'classic' : this.mode;
       this.seed = opts.seed >>> 0;
       this.cfg = opts.config || BG.Config;
-      this.relicMode = this.mode !== 'classic';
+      this.relicMode = this.ruleMode !== 'classic';
       this.fixedSequence = this.mode === 'daily';
       this.best = opts.best || 0;
 
@@ -23,7 +26,7 @@
       this.gen = new BG.Generator(this.seed, this.fixedSequence, this.cfg);
       this.relicPool = BG.Relics.poolFor(this.fixedSequence);
       this.director = new BG.DealDirector({
-        mode: this.mode,
+        mode: this.ruleMode,
         daily: this.fixedSequence,
         best: this.best,
         dynamic: opts.dynamic === undefined ? this.cfg.dealer.enabled : opts.dynamic
@@ -77,6 +80,7 @@
       this.placementsAtRevive = 0;
       this.ads = BG.Stats.emptyAds();
 
+      this.duo = this.mode === 'duo' ? this._newDuo(opts.names) : null;
       this.wallet = opts.wallet || null;
       this.coinsEarned = 0;
       this.coinsSpent = 0;
@@ -110,6 +114,46 @@
 
     has(id) {
       return this.relics.indexOf(id) !== -1;
+    }
+
+    // ---------- 双人 ----------
+
+    // 能序列化，见 core/duostate.js
+    _newDuo(names) {
+      const list = names || this.cfg.duo.defaultNames;
+      return {
+        current: 0,
+        turns: 1,
+        lastStuck: null,
+        players: list.map(function (name) {
+          return { name: name, score: 0, placements: 0, maxCombo: 0, revivesUsed: 0, swapsUsed: 0, reviveMethods: [], swapMethods: [] };
+        })
+      };
+    }
+
+    // 现在轮到的人，不是双人局时是 null
+    currentPlayer() {
+      return this.duo ? this.duo.players[this.duo.current] : null;
+    }
+
+    // 分数和连击记给放这一块的人。连击本身不分人，下一个人能接上
+    _creditPlayer(total) {
+      const p = this.currentPlayer();
+      if (!p) return;
+      p.score += total;
+      p.placements++;
+      if (this.combo > p.maxCombo) p.maxCombo = this.combo;
+    }
+
+    _nextTurn() {
+      const d = this.duo;
+      d.current = 1 - d.current;
+      d.turns++;
+      this._emit('turnChanged', { player: d.current, name: d.players[d.current].name });
+    }
+
+    _noteStuckPlayer() {
+      if (this.duo) this.duo.lastStuck = this.duo.current;
     }
 
     // 开局道具：只在遗物模式，付得起才生效。炸弹计入每局上限；暂存和遗物规则相同，三选一不再出现。
@@ -166,7 +210,7 @@
 
     // 这一阶段的发牌条件。动态发牌只发现在放得下的形状，棋盘太挤或复活缓冲时不发大方块
     _dealCtx(phase) {
-      const late = BG.Dealer.isLate(phase, this.placements, this.cfg, this.mode);
+      const late = BG.Dealer.isLate(phase, this.placements, this.cfg, this.ruleMode);
       const ctx = this._ctx();
       if (late) ctx.szAllowed = this._szAllowed(true);
       if (phase !== 'daily' && phase !== 'off') {
@@ -263,7 +307,7 @@
         this.tray = this.gen.drawSmallGuaranteed(this.board, count - 1, this.cfg.dealer.fallbackMaxCells, this.groupIndex)
           .concat([this.gen.giftPiece(this.groupIndex)]);
       }
-      const late = BG.Dealer.isLate(phase, this.placements, this.cfg, this.mode);
+      const late = BG.Dealer.isLate(phase, this.placements, this.cfg, this.ruleMode);
       this._countDealt(late);
       const metrics = picked && !gifted && !buffer ? picked.metrics : BG.Dealer.evaluate(this.board, this.tray, this.cfg);
       const relaxed = dynamic && (metrics.fits < metrics.count || metrics.solvable === false);
@@ -340,7 +384,7 @@
       const stage = this.stageNumber();
       const planRng = new BG.RNG(BG.RNG.derive(this.seed, 'bigPlan' + salt, this.groupIndex));
       const plan = easy ? null : this.gen.bigPlan(planRng, this.gen.weights(ctx), count);
-      if (phase === 'normal' || phase === 'sprint' || phase === 'trial') ctx.awkwardMult = BG.Dealer.normalAwkwardMult(stage, this.cfg, this.mode);
+      if (phase === 'normal' || phase === 'sprint' || phase === 'trial') ctx.awkwardMult = BG.Dealer.normalAwkwardMult(stage, this.cfg, this.ruleMode);
       const weights = this.gen.weights(ctx);
       roll(this, 'dynamic' + salt, easy ? weights : this.gen.withoutBig(weights), d.candidates, plan);
       // 候选都不合格时，先用小方块再试一轮，给这一轮留出搜索预算
@@ -351,7 +395,7 @@
         roll(this, 'dynamicSmall' + salt, small, Math.ceil(d.candidates / 3));
       }
       const pickRng = new BG.RNG(BG.RNG.derive(this.seed, 'dynamicPick' + salt, this.groupIndex));
-      return BG.Dealer.select(phase, candidates, pickRng, this.cfg, this.mode, stage, this.director.sprintMild);
+      return BG.Dealer.select(phase, candidates, pickRng, this.cfg, this.ruleMode, stage, this.director.sprintMild);
     }
 
     // ---------- 托盘 ----------
@@ -453,6 +497,7 @@
       }, this.cfg);
       const prevScore = this.score;
       this.score += result.total;
+      this._creditPlayer(result.total);
       this.linesCleared += lines.length;
       this.director.onScore(prevScore, this.score);
       if (this.director.dynamic) this.guardKeys = this.guardKeys.concat(this.director.crossedKeys(prevScore, this.score));
@@ -481,6 +526,7 @@
 
     // 这组放完了：有待选的遗物就先选，选完再发牌，遗物和考验期才能作用到下一组
     _finishGroup() {
+      if (this.duo) this._nextTurn();
       if (this.pendingTiers.length > 0 && this._nextOffer()) this.dealPending = true;
       else this._deal();
     }
@@ -722,8 +768,10 @@
       return true;
     }
 
+    // 双人局按人算
     swapsLeft() {
-      return this.cfg.ads.swapTrayLimit - this.swapsUsed;
+      const p = this.currentPlayer();
+      return this.cfg.ads.swapTrayLimit - (p ? p.swapsUsed : this.swapsUsed);
     }
 
     // 看完激励视频后调用。free：用奖励的免费次数，不看广告，也不占广告次数
@@ -736,6 +784,11 @@
         this._noteStuckChoice('freeSwap');
       } else {
         this.swapsUsed++;
+        const p = this.currentPlayer();
+        if (p) {
+          p.swapsUsed++;
+          p.swapMethods.push('a');
+        }
         this._noteStuckChoice('swap');
       }
       this._rerollTray();
@@ -785,6 +838,7 @@
         this.currentStuck = { step: this.placements, panel: false, choices: [], tried: {} };
         this.stuckLog.push(this.currentStuck);
         this.phase = 'stuck';
+        this._noteStuckPlayer();
       }
       this._showStuckPanel();
     }
@@ -811,7 +865,8 @@
 
     // 没有任何选项时直接结算。同一次卡死只计一次面板，炸弹没解围时回到同一个面板。
     _showStuckPanel() {
-      if (!this.hasStuckRescue()) {
+      // 双人局要让大家看到是谁卡住了，自己的次数用完也弹，只剩放弃
+      if (!this.duo && !this.hasStuckRescue()) {
         this.endGame('stuck');
         return;
       }
@@ -824,8 +879,22 @@
       if (this.phase === 'stuck' && this.currentStuck) this.currentStuck.choices.push(choice);
     }
 
+    // 双人局按人算
     revivesLeft() {
-      return this.cfg.ads.reviveLimit - this.revivesUsed;
+      const p = this.currentPlayer();
+      return this.cfg.ads.reviveLimit - (p ? p.revivesUsed : this.revivesUsed);
+    }
+
+    // 记下这次复活。free 不占次数
+    _noteRevive(method) {
+      this.reviveMethods.push(method);
+      if (method === 'f') return;
+      this.revivesUsed++;
+      const p = this.currentPlayer();
+      if (p) {
+        p.revivesUsed++;
+        p.reviveMethods.push(method);
+      }
     }
 
     // 面板上的选项，按显示顺序。revive 的 works 为 false 时显示但不能点。
@@ -870,7 +939,7 @@
       if (this.phase !== 'stuck' || !this.currentStuck) return;
       this.currentStuck.tried[type] = true;
       this._noteStuckChoice(type + 'Abandoned');
-      if (!this.hasStuckRescue()) this.endGame('stuck');
+      if (!this.duo && !this.hasStuckRescue()) this.endGame('stuck');
     }
 
     canRevive(free) {
@@ -899,8 +968,7 @@
     reviveWithCoins() {
       if (!this.canCoinRevive() || !this.wallet.spend(this.cfg.coins.reviveCost)) return false;
       this.coinsSpent += this.cfg.coins.reviveCost;
-      this.revivesUsed++;
-      this.reviveMethods.push('c');
+      this._noteRevive('c');
       this._noteStuckChoice('coinRevive');
       this._applyRevive();
       return true;
@@ -912,11 +980,10 @@
       if (free) {
         this.freeRevives--;
         this._noteRewardUsed('revive');
-        this.reviveMethods.push('f');
+        this._noteRevive('f');
         this._noteStuckChoice('freeRevive');
       } else {
-        this.revivesUsed++;
-        this.reviveMethods.push('a');
+        this._noteRevive('a');
         this._noteStuckChoice('revive');
       }
       this._applyRevive();
@@ -990,6 +1057,7 @@
         bombsUsed: this.bombsUsed,
         crossGuards: this.crossGuards,
         holdRescues: this.holdRescues,
+        duo: this.duo ? JSON.parse(JSON.stringify(this.duo)) : undefined,
         itemRelics: this._itemRecord(),
         rewardsGained: this.rewardsGained,
         rewardsUsed: this.rewardsUsed,
@@ -1060,6 +1128,7 @@
       this.currentStuck = { step: this.placements, panel: false, choices: [], tried: {} };
       this.stuckLog.push(this.currentStuck);
       this.phase = 'stuck';
+      this._noteStuckPlayer();
       this._showStuckPanel();
     }
   }

@@ -6,6 +6,8 @@
   const D = BG.Draw;
 
   const REASONS = { stuck: '无处可放', abandon: '已放弃' };
+  const DUO_ROW_H = 66;
+  const DUO_H = DUO_ROW_H * 2 + 30;
 
   class ResultScene {
     // info: { isRecord, best, rank, rankUp }
@@ -51,7 +53,7 @@
       const usable = screen.height - safe.top - safe.bottom;
       const heightWith = function (cols) {
         const relicRows = g.relicMode ? Math.ceil(g.relics.length / cols) : 0;
-        return 40 + 60 + 34 + 30 + 34 + (g.relicMode ? 34 + relicRows * 44 : 0) + (rewards.length ? 34 + 40 : 0) + (coins > 0 ? 34 : 0) + 20 + 76 + 10 + 44;
+        return 40 + 60 + 34 + (g.duo ? DUO_H : 30) + 34 + (g.relicMode ? 34 + relicRows * 44 : 0) + (rewards.length ? 34 + 40 : 0) + (coins > 0 ? 34 : 0) + 20 + 76 + 10 + 44;
       };
       // 遗物两列，小屏放不下时改成三列
       const relicCols = heightWith(2) + 20 > usable ? 3 : 2;
@@ -68,13 +70,16 @@
       const scoreY = y + 30;
       y += 60;
       if (this.info.isRecord) {
-        D.text(ctx, '新纪录！', cx, y + 15, { size: 20, bold: true, align: 'center', color: T.gold });
+        D.text(ctx, g.duo ? '双人新纪录！' : '新纪录！', cx, y + 15, { size: 20, bold: true, align: 'center', color: T.gold });
       } else {
-        D.text(ctx, '最高分 ' + this.info.best, cx, y + 15, { size: 16, color: T.textDim, align: 'center' });
+        D.text(ctx, (g.duo ? '双人纪录 ' : '最高分 ') + this.info.best, cx, y + 15, { size: 16, color: T.textDim, align: 'center' });
       }
       y += 30;
-      D.text(ctx, BG.Rank.text(this.info.rank), cx, y + 12, { size: 16, bold: this.info.rankUp, color: T.gold, align: 'center' });
-      y += 34;
+      // 段位是个人的，双人局不显示
+      if (!g.duo) {
+        D.text(ctx, BG.Rank.text(this.info.rank), cx, y + 12, { size: 16, bold: this.info.rankUp, color: T.gold, align: 'center' });
+        y += 34;
+      }
 
       const row = function (label, value) {
         D.text(ctx, label, x + 4, y + 15, { size: 16, color: T.textDim });
@@ -92,6 +97,7 @@
         this.fly.to = { x: iconX, y: y + 15 };
         y += 34;
       }
+      if (g.duo) y = this._drawDuo(ctx, x, y, w);
       if (g.relicMode) {
         D.text(ctx, g.relics.length ? '获得的遗物' : '没有获得遗物', x + 4, y + 15, { size: 16, color: T.textDim });
         y += 34;
@@ -120,7 +126,7 @@
       // 最大的按钮：立即同模式新开一局，不经过主菜单，不播广告
       ui.button(ctx, 'again', x, y, w, againH, '再来一局', {
         style: 'primary', size: 26,
-        onTap: function () { BG.App.startGame(g.mode); }
+        onTap: function () { BG.App.restartGame(g); }
       });
       y += againH + 10;
       ui.button(ctx, 'menu', x, y, w, 44, '返回菜单', {
@@ -132,6 +138,32 @@
       if (this.celebrate.banner) {
         this.celebrate.drawBanner(ctx, { x: x, y: safe.top + 4, w: w, h: 56 });
       }
+    }
+
+    // 两人的贡献：颜色条按得分对比，得分高的有徽章；最后是谁卡住
+    _drawDuo(ctx, x, y, w) {
+      const d = this.game.duo;
+      const a = d.players[0].score;
+      const b = d.players[1].score;
+      const max = Math.max(a, b, 1);
+      d.players.forEach(function (p, i) {
+        D.text(ctx, p.name, x + 4, y + 13, { size: 16, bold: true, color: T.duo[i] });
+        if (a !== b && p.score === max) {
+          const nameW = Array.from(p.name).length * 17 + 12;
+          D.fillRound(ctx, x + 4 + nameW, y + 3, 40, 20, 6, T.gold);
+          D.text(ctx, '最高', x + 24 + nameW, y + 13, { size: 16, bold: true, color: '#0b0e13', align: 'center' });
+        }
+        D.text(ctx, String(p.score), x + w - 4, y + 13, { size: 18, bold: true, align: 'right' });
+        D.fillRound(ctx, x + 4, y + 26, w - 8, 10, 5, T.panel);
+        const barW = (w - 8) * p.score / max;
+        if (barW >= 10) D.fillRound(ctx, x + 4, y + 26, barW, 10, 5, T.duo[i]);
+        D.text(ctx, '放 ' + p.placements + ' 块 · 最大连击 ' + p.maxCombo, x + 4, y + 49, { size: 16, color: T.textDim });
+        y += DUO_ROW_H;
+      });
+      if (d.lastStuck !== null && this.game.endReason === 'stuck') {
+        D.text(ctx, d.players[d.lastStuck].name + ' 最后卡住', x + w / 2, y + 12, { size: 16, align: 'center', color: T.duo[d.lastStuck] });
+      }
+      return y + 30;
     }
 
     back() {

@@ -7,6 +7,7 @@
   const PROGRESS_H = 32;
   const RELIC_ROW_H = 46;
   const TOOLS_H = 56;
+  const TURN_H = 38;
 
   // 对齐到最近的物理像素，dpr 是 2.75 这样的小数时也成立
   function snap(v) {
@@ -20,7 +21,7 @@
     return Math.floor(v * d + 1e-6) / d;
   }
 
-  function compute(screen, relicMode) {
+  function compute(screen, relicMode, duo) {
     const safe = screen.safe;
     const usableW = screen.width - safe.left - safe.right - GUTTER * 2;
     const cw = Math.min(usableW, BG.Config.ui.maxColumn);
@@ -36,6 +37,11 @@
       y += PROGRESS_H;
       relicRow = { x: x, y: y, w: cw, h: RELIC_ROW_H };
       y += RELIC_ROW_H;
+    }
+    let turn = null;
+    if (duo) {
+      turn = { x: x, y: y, w: cw, h: TURN_H };
+      y += TURN_H;
     }
 
     const bottom = screen.height - safe.bottom - 6;
@@ -54,7 +60,7 @@
       size: size
     };
 
-    return { cw: cw, x: x, header: header, progress: progress, relicRow: relicRow, board: board, tray: tray, tools: tools };
+    return { cw: cw, x: x, header: header, progress: progress, relicRow: relicRow, turn: turn, board: board, tray: tray, tools: tools };
   }
 
   // 托盘每个位置的矩形和缩略图格子大小

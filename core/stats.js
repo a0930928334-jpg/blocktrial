@@ -116,6 +116,14 @@
       sd: r.diedInSprint ? 1 : 0,
       hr: r.holdRescues || 0
     };
+    // 双人局：{ p: [[得分, 放置数, 最大连击, 复活方式, 换组方式] × 2], ls: 谁最后卡住（0 或 1，没卡住是 null）, t: 总轮数 }
+    if (r.duo) {
+      out.duo = {
+        p: r.duo.players.map(function (x) { return [x.score, x.placements, x.maxCombo, x.reviveMethods.join(','), x.swapMethods.join(',')]; }),
+        ls: r.duo.lastStuck,
+        t: r.duo.turns
+      };
+    }
     // 复活方式和开局道具，没有的局不写
     if ((r.reviveMethods || []).length > 0) out.rvt = r.reviveMethods.join(',');
     if (r.openingItem) out.op = ITEM_CODES[r.openingItem];

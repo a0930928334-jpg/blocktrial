@@ -6,7 +6,7 @@
   const D = BG.Draw;
   const Kit = BG.UIKit;
 
-  const MODES = { classic: '经典', relic: '遗物', daily: '每日' };
+  const MODES = { classic: '经典', relic: '遗物', daily: '每日', duo: '双人' };
   const REASONS = { stuck: '卡死', abandon: '放弃' };
 
   class StatsScene {

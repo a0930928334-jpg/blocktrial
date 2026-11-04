@@ -183,6 +183,12 @@ BG.Config = {
     openingItems: ['timeBomb', 'holdSlot']
   },
 
+  // ---------- 双人同屏轮流：规则沿用经典模式 ----------
+  duo: {
+    defaultNames: ['玩家1', '玩家2'],
+    nameMax: 6            // 名字最多几个字
+  },
+
   // ---------- 局外段位，按所有模式的个人最高分 ----------
   rank: {
     tiers: [[500, '新手'], [1000, '熟练'], [2000, '高手'], [3000, '大师'], [5000, '传说']]
@@ -247,6 +253,7 @@ BG.Config = {
     pendingRelicMs: 900,  // 待选遗物的小图标跳动一次的时长
     coinFly: { minCoins: 3, maxCoins: 8, stagger: 70, flyMs: 520, holdMs: 500, fadeMs: 350, arc: 40, size: 24, labelGap: 20 }, // 金币飞向余额
     holdHintMs: 900,      // 只剩暂存这条路时，暂存格跳动一次的时长
+    turnToastLife: 1300,  // 双人换人时"轮到 XX"显示多久，不挡操作
     // 分数台阶和升段的庆祝
     celebrate: {
       lifeMs: 1500,       // 总时长，之后自然消失

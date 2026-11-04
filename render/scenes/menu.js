@@ -107,14 +107,16 @@
       const cx = x + w / 2;
 
       const logoH = 72 + 34;
-      const fullH = 72 + 88 + 30 + 68 + 66 * 3 + 12 * 2 + 16 + 52;
+      const fullH = 72 + 88 + 30 + 68 + 66 * 4 + 12 * 3 + 16 + 52;
       // 有新版本时顶部留出提示的位置，内容往下排，小屏幕上也不会重叠
       const newVersion = BG.Pwa.availableVersion();
       const noticeH = newVersion ? 64 : 0;
       const usable = screen.height - safe.top - safe.bottom - noticeH;
       // 小屏幕放不下时不画图标
       const showLogo = fullH + 24 <= usable;
-      const contentH = showLogo ? fullH : fullH - logoH;
+      // 还放不下时模式按钮也矮一点
+      const modeH = showLogo ? 66 : 58;
+      const contentH = showLogo ? fullH : fullH - logoH - 8 * 4;
       let y = safe.top + noticeH + Math.max(12, (usable - contentH) / 2);
       if (newVersion) this._updateNotice(ctx, screen, newVersion);
 
@@ -131,21 +133,26 @@
       const icon = this._coinRow(ctx, x, y, w);
       y += 68;
 
-      ui.button(ctx, 'classic', x, y, w, 66, '经典模式', {
+      ui.button(ctx, 'classic', x, y, w, modeH, '经典模式', {
         style: 'secondary', size: 20, sub: '最高分 ' + app.getBest('classic'),
         onTap: function () { app.startGame('classic'); }
       });
-      y += 78;
-      ui.button(ctx, 'relic', x, y, w, 66, '遗物模式', {
+      y += modeH + 12;
+      ui.button(ctx, 'relic', x, y, w, modeH, '遗物模式', {
         style: 'primary', size: 20, sub: '最高分 ' + app.getBest('relic'),
         onTap: function () { app.startGame('relic'); }
       });
-      y += 78;
-      ui.button(ctx, 'daily', x, y, w, 66, '每日挑战', {
+      y += modeH + 12;
+      ui.button(ctx, 'daily', x, y, w, modeH, '每日挑战', {
         style: 'gold', size: 20, sub: '今日最高 ' + app.getBest('daily'),
         onTap: function () { app.startGame('daily'); }
       });
-      y += 82;
+      y += modeH + 12;
+      ui.button(ctx, 'duo', x, y, w, modeH, '双人', {
+        style: 'secondary', size: 20, sub: '双人纪录 ' + app.getBest('duo'),
+        onTap: function () { app.startGame('duo'); }
+      });
+      y += modeH + 16;
 
       const half = (w - 12) / 2;
       ui.button(ctx, 'stats', x, y, half, 52, '统计', {

@@ -116,7 +116,9 @@
       const isRevive = function (o) { return o.id === 'freeRevive' || o.id === 'revive' || o.id === 'coinRevive'; };
       const recordText = options.some(isRevive) ? this._recordText() : null;
       const rows = options.length - (ad && coin ? 1 : 0);
-      const panelH = 54 + rows * (BUTTON_H + GAP) + (recordText ? TEXT_H : 0) + 8;
+      const duoPlayer = this.game.currentPlayer();
+      const titleH = duoPlayer ? 54 + TEXT_H : 54;
+      const panelH = titleH + rows * (BUTTON_H + GAP) + (recordText ? TEXT_H : 0) + 8;
       // 贴着屏幕下方，把棋盘露出来
       const px = safe.left + (screen.width - safe.left - safe.right - panelW) / 2;
       const py = screen.height - safe.bottom - panelH - 10;
@@ -125,7 +127,10 @@
 
       const x = px + 14;
       const w = panelW - 28;
-      let y = py + 54;
+      let y = py + titleH;
+      if (duoPlayer) {
+        D.text(ctx, duoPlayer.name + ' 卡住了', px + panelW / 2, py + 62, { size: 18, bold: true, color: T.duo[this.game.duo.current], align: 'center' });
+      }
       let textDrawn = false;
       let rowDrawn = false;
       options.forEach(function (o) {
